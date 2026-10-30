@@ -1,96 +1,151 @@
 # Semester project plan: eShopOnWeb → microservices (Strangler Pattern)
 
-Source requirements: `Semesteropgave.pdf` (9 requirements) and `Hvad_er_et_faerdigt_produkt_OPGAVE.pdf`
-(turn each requirement into a concrete, checkable criterion). Baseline analysis: [01-monolith-flows.md](01-monolith-flows.md).
+I work alone, and my deadline is **23/11-2026**. That gives me 24 days and about 130 hours from 30/10-2026. This is the smallest plan I can find that meets every criterion in [faerdigt-produkt.md](../docs/faerdigt-produkt.md).
 
-## Current state (what we start from)
+- **Requirements:** [opgavebeskrivelse.pdf](../docs/opgavebeskrivelse.pdf). Requirement numbers 1–9 below refer to this list and to `faerdigt-produkt.md`.
+- **Architecture:** [02-target-architecture.md](02-target-architecture.md) is the single source of truth for services, extraction order and event names.
+- **Baseline:** [01-monolith-flows.md](01-monolith-flows.md).
 
-- `src/Web` (MVC + Razor Pages) handles catalog, basket, checkout and identity in one process.
-- `src/PublicApi` covers catalog CRUD + auth for `BlazorAdmin`.
-- **One shared database** (`CatalogContext`) holds Catalog, Basket **and** Order tables. Identity has its own DB.
-- Domain events are published in-process via Mediator (`OrderCreatedEvent`).
-- No inventory and no payment. Checkout writes are not transactional.
-- Already present and reusable: Dockerfiles for Web/PublicApi, `docker-compose.yml`, the Aspire AppHost +
-  `AspireServiceDefaults` (OpenTelemetry, health checks), and the GitHub Actions workflow `dotnetcore.yml`.
+## Scope
 
-## Target architecture
+| Area | Choice |
+|---|---|
+| **Services** | Catalog, Basket and Ordering (extracted from the monolith) plus Inventory (new), each with its own SQL Server database |
+| **Stays in the monolith** | Pages, sign-in, user management, JWT tokens (`ITokenClaimsService`) |
+| **API gateway** | YARP with JWT authentication, .NET rate limiting, and 2 Catalog replicas for load balancing |
+| **Messaging** | MassTransit v8 with RabbitMQ (v9 needs a commercial license) |
+| **Resilience** | Polly circuit breaker on every HTTP call between services |
+| **Logging** | Serilog with Seq |
+| **CI/CD** | GitHub Actions with Docker builds |
 
-```mermaid
-flowchart LR
-    B[Browser / BlazorAdmin] --> GW[API Gateway<br/>YARP: auth, rate limit, LB]
-    GW -->|not yet migrated routes| MONO[eShopWeb monolith]
-    GW --> CAT[Catalog service]
-    GW --> BAS[Basket service]
-    GW --> ORD[Ordering service]
-    ORD -. OrderCreated .-> MQ[(RabbitMQ)]
-    MQ -.-> INV[Inventory service]
-    MQ -.-> PAY[Payment service]
-    INV -. StockReserved / StockRejected .-> MQ
-    PAY -. PaymentSucceeded / Failed .-> MQ
-    MQ -.-> ORD
-    MQ -.-> BAS
-    CAT --- CDB[(CatalogDB)]
-    BAS --- BDB[(BasketDB / Redis)]
-    ORD --- ODB[(OrderingDB)]
-    INV --- IDB[(InventoryDB)]
-    PAY --- PDB[(PaymentDB)]
-    MONO --- MDB[(Monolith DB + Identity)]
-```
+## Estimates and schedule
 
-| Service | Owns | Exposes | Talks to others via |
-|---|---|---|---|
-| **Catalog** | items, brands, types, prices | REST `GET /api/catalog-items`, brands, types (+ admin CRUD) | publishes `ProductPriceChanged`, `ProductCreated` |
-| **Basket** | baskets per buyerId (user or anonymous GUID) | REST `GET/POST/PUT /api/basket`, `POST /api/basket/transfer` | sync GET to Catalog for price/name; consumes `OrderCreated` → clear basket |
-| **Ordering** | orders, order status | REST `POST /api/orders` (checkout), `GET /api/orders/my` | publishes `OrderCreated`; consumes stock/payment events; runs the checkout saga |
-| **Inventory** (new) | stock on hand, reservations | REST `GET /api/inventory/{itemId}`, admin restock | consumes `OrderCreated`, `PaymentFailed`, `OrderCancelled`; publishes `StockReserved` / `StockRejected` |
-| **Payment** (simulated) | payment attempts | none public (internal only) | consumes `StockReserved`; publishes `PaymentSucceeded` / `PaymentFailed` |
-| **Monolith** (shrinks) | Identity, MVC UI, anything not yet migrated | existing pages | calls services through the gateway |
+All values are hours for one developer. **O** = optimistic, **M** = most likely, **P** = pessimistic, and **E = (O + 4M + P) / 6**, rounded to one decimal. **Req** is the requirement number the task satisfies. Totals add up the values shown.
 
-Checkout saga (orchestrated in Ordering): `Pending → StockReserved → Paid → Confirmed`, with compensations
-`StockRejected → Cancelled` and `PaymentFailed → ReleaseStock → Cancelled`.
+### Week 1 (30/10–5/11)
 
-Technology choices (each one gets a short ADR in `architecture/adr/`):
-- **Gateway:** YARP (.NET native) with ASP.NET Core JWT auth, `Microsoft.AspNetCore.RateLimiting`, and YARP's built-in load balancing over 2+ replicas.
-- **Messaging:** RabbitMQ with MassTransit **v8** (v9 needs a commercial license). Outbox pattern in Ordering/Inventory.
-- **Resilience:** `Microsoft.Extensions.Http.Resilience` (Polly): retry, timeout, circuit breaker on every sync HTTP call.
-- **Observability:** OpenTelemetry (already in `AspireServiceDefaults`) → Prometheus + Grafana; Serilog structured logs with a correlation id → Seq or Loki.
-- **Data:** SQL Server, one database per service (separate containers or at least separate DBs + logins). Basket can use Redis.
-- **CI/CD:** GitHub Actions: build + test per service → Docker image → push to GHCR → deploy via docker compose (or Azure Container Apps, using the existing `infra/`).
+Gateway, shared setup and Catalog. Tag: `strangler-0-gateway`, then `strangler-1-catalog`.
 
-## Phased roadmap (strangler order)
+| ID | Task | Req | O | M | P | E |
+|---|---|---|---:|---:|---:|---:|
+| G1 | Create `src/Gateway` (YARP) with a catch-all route to the monolith, fix cookies and forwarded headers, and run `tests/EndToEndTests` through it | 2, 4 | 2 | 4 | 8 | 4.3 |
+| S1 | Add RabbitMQ, Seq and the new databases to compose, and make a service template with a `Dockerfile` | 5, 6, 8 | 2 | 3 | 6 | 3.3 |
+| S2 | Add MassTransit v8 and `src/BuildingBlocks/Contracts` with the 4 integration events | 5 | 2 | 3 | 5 | 3.2 |
+| S3 | Send Serilog logs to Seq with a `CorrelationId`, and add `/health` to the template | 7 | 1 | 2 | 4 | 2.2 |
+| S4 | Extend `dotnetcore.yml` to build, test and make a Docker image for each service | 8 | 2 | 3 | 6 | 3.3 |
+| C1 | Create the Catalog service with `CatalogDb`, reusing the entities and `CatalogContextSeed` | 1, 6 | 2 | 4 | 7 | 4.2 |
+| C2 | Move catalog read and admin endpoints from `PublicApi` | 1, 2 | 2 | 4 | 7 | 4.2 |
+| C3 | Switch monolith catalog, basket and checkout product reads to the Catalog API, with a Polly circuit breaker and fallback | 2, 6, 7 | 3 | 6 | 10 | 6.2 |
+| C4 | Add gateway routes for Catalog and point BlazorAdmin at the gateway | 2, 4 | 1 | 2 | 5 | 2.3 |
+| C5 | Catalog tests | 1, 8 | 1 | 2 | 4 | 2.2 |
+| | **Total: Week 1 (30/10–5/11)** | | **18** | **33** | **62** | **35.4** |
 
-Each phase leaves the system running. The gateway decides per route whether the monolith or a service handles it.
+### Week 2 (6/11–12/11)
 
-| # | Phase | Main work | Exit check |
-|---|---|---|---|
-| 0 | **Analysis & docs** | Sequence diagrams (done), bounded contexts, ADR template, update README | `architecture/01-monolith-flows.md` + bounded-context section merged |
-| 1 | **Gateway in front of monolith** | Add `src/Gateway` (YARP), route `/**` → monolith, add to compose/Aspire | Site works unchanged through gateway on one port; monolith port no longer published |
-| 2 | **Platform plumbing** | RabbitMQ, Prometheus, Grafana, log sink in compose; shared `ServiceDefaults` (OTel, health, resilience) | All containers healthy; Grafana dashboard shows gateway + monolith metrics |
-| 3 | **Catalog service** | Extract catalog read + admin endpoints (reuse PublicApi code), own CatalogDB, gateway routes `/api/catalog/**`; monolith's `CatalogViewModelService` calls the API through an HTTP client with a circuit breaker | Catalog page loads with monolith's catalog tables unused; stopping Catalog service shows a graceful fallback, not a 500 |
-| 4 | **Inventory service (new)** | Stock + reservation model, seed stock for catalog items, REST + consumers | `OrderCreated` with qty > stock produces `StockRejected`; unit + integration tests green |
-| 5 | **Basket service** | Extract basket aggregate + anonymous/user merge; monolith pages call Basket API | Add/update/merge basket works via API; Basket tables dropped from monolith DB |
-| 6 | **Ordering + Payment + saga** | Extract `OrderService`, replace in-process Mediator event with RabbitMQ `OrderCreated`, saga with Inventory + Payment, real address from the form | Happy path → `Confirmed`; forced payment failure → stock released + `Cancelled`; basket cleared via event |
-| 7 | **Gateway hardening** | JWT validation at gateway (token from Identity/monolith), rate-limit policy, 2 replicas of Catalog with load balancing | `429` after N req/s (test script); requests spread across replicas (logs/metrics); protected routes return `401` without a token |
-| 8 | **CI/CD** | Workflow matrix per service: build, test, docker build, push to GHCR, deploy | Green pipeline run on `main` producing one image per service |
-| 9 | **Final docs** | README: architecture, ADRs, API list (OpenAPI/Swagger per service), Inventory service interaction, runbook | A new person can run `docker compose up` from the README alone |
+Basket, gateway security, and the start of Inventory. Tag: `strangler-2-basket`.
 
-## "Færdigt produkt": concrete criteria per requirement
+| ID | Task | Req | O | M | P | E |
+|---|---|---|---:|---:|---:|---:|
+| B1 | Create the Basket service with `BasketDb` | 1, 6 | 2 | 3 | 5 | 3.2 |
+| B2 | REST API for signed-in and anonymous buyers, including merge at sign-in | 1, 2 | 3 | 5 | 8 | 5.2 |
+| B3 | Catalog HTTP client with a Polly circuit breaker | 6, 7 | 1 | 2 | 3 | 2.0 |
+| B4 | Subscribe to `OrderConfirmedIntegrationEvent` and empty the basket | 5 | 1 | 2 | 3 | 2.0 |
+| B5 | Switch monolith basket pages, sign-in merge and the header item count to the API | 2 | 3 | 5 | 8 | 5.2 |
+| B6 | Basket tests | 1, 8 | 1 | 2 | 4 | 2.2 |
+| A1 | Validate JWT at the gateway on protected routes, with `Web` sending a token from `ITokenClaimsService` | 4 | 2 | 3 | 6 | 3.3 |
+| A2 | Add .NET rate limiting (100 requests per 10 seconds) and the `429` check in `scripts/test-gateway.ps1` | 4 | 1 | 2 | 3 | 2.0 |
+| A3 | Run 2 Catalog replicas with YARP load balancing, and add the check to the script | 4 | 1 | 2 | 4 | 2.2 |
+| I1 | Create the Inventory service with `InventoryDb` and seeded stock | 1, 3, 6 | 2 | 3 | 5 | 3.2 |
+| I2 | Reservation logic that can't oversell, reserving all lines or none | 3 | 2 | 4 | 7 | 4.2 |
+| | **Total: Week 2 (6/11–12/11)** | | **19** | **33** | **56** | **34.7** |
 
-| # | Requirement | How we can verify it |
-|---|---|---|
-| 1 | Identify & bound services (≥ 3) | ≥ 3 services (Catalog, Basket, Ordering + Inventory, Payment), each in its own project/container with its own DB; README section justifying each boundary, with reference to the coupling points in `01-monolith-flows.md` |
-| 2 | Strangler Pattern | Gateway route table in `src/Gateway/appsettings.json` shows migrated routes → services and the rest → monolith; git history/tags per phase; the site was usable after every phase (smoke test / Playwright run per phase) |
-| 3 | Inventory as standalone service | `src/Services/Inventory` with its own Dockerfile + DB; reserving at checkout is observable (stock drops on order, restores on cancel); tests cover reserve/release/oversell |
-| 4 | API Gateway (auth, LB, rate limiting) | One public entry port; `401` without a token on protected routes; `429` when the limit is exceeded; traffic split across ≥ 2 replicas visible in metrics |
-| 5 | Async messaging | RabbitMQ in compose; named contracts (`OrderCreated`, `StockReserved`, `StockRejected`, `PaymentSucceeded`, `PaymentFailed`); RabbitMQ management UI shows exchanges/queues; Inventory down → order stays `Pending` and completes when it comes back |
-| 6 | DB per service | One connection string per service, no service references another service's `DbContext`; cross-service data only via API or event (verified by project references: no service references another's Infrastructure) |
-| 7 | Error handling & monitoring | Circuit breaker configured on every HttpClient (shown by killing Catalog → breaker opens, logged); `/health` on every service; Grafana dashboard with request rate/errors/latency per service; logs searchable by correlation id across services |
-| 8 | CI/CD | `.github/workflows/*.yml` running build + test + docker build/push per service; badge in README; failing test blocks the pipeline |
-| 9 | Documentation | README + `architecture/` with diagrams, ADRs, per-service API docs (Swagger), Inventory interaction diagram, how to run/test |
+### Week 3 (13/11–19/11)
 
-## Open decisions for the group
+Finish Inventory, move Ordering, and finish the pipeline. Tags: `strangler-3-inventory`, then `strangler-4-ordering`.
 
-1. **Payment:** a simulated service (configurable success/fail) is assumed. Is that enough, or is a separate real integration expected?
-2. **Prepared inventory system:** the assignment refers to an inventory system "you have made". If the group already has one, Phase 4 means integrating that code rather than writing it from scratch.
-3. **Deployment target:** docker compose locally only, or also Azure (the repo already has `infra/` + `azure.yaml`)?
-4. **Identity:** keep it in the monolith and issue JWTs from there (simplest), or extract an Identity service?
+| ID | Task | Req | O | M | P | E |
+|---|---|---|---:|---:|---:|---:|
+| I3 | Subscribe to `OrderStartedIntegrationEvent` and publish stock events, ignoring duplicate messages | 3, 5 | 2 | 3 | 6 | 3.3 |
+| I4 | `GET /api/inventory/{itemId}` and a gateway route | 2, 3 | 1 | 1 | 2 | 1.2 |
+| I5 | Inventory tests, including `Reserve_more_than_stock_is_rejected` | 3, 8 | 2 | 3 | 4 | 3.0 |
+| O1 | Create the Ordering service with `OrderingDb` | 1, 6 | 2 | 4 | 6 | 4.0 |
+| O2 | Checkout and order history API, reading Basket and Catalog over HTTP with circuit breakers | 1, 6, 7 | 3 | 4 | 7 | 4.3 |
+| O3 | Order status `Pending`, `Confirmed` or `Cancelled`, driven by events, with the confirmation e-mail | 5 | 2 | 4 | 8 | 4.3 |
+| O4 | Switch monolith checkout and order pages to the API | 2 | 3 | 5 | 9 | 5.3 |
+| O5 | Ordering tests and `scripts/test-messaging.ps1` | 5, 8 | 2 | 4 | 7 | 4.2 |
+| O6 | Remove catalog, basket and order tables and code from the monolith | 2, 6 | 1 | 1 | 3 | 1.3 |
+| S5 | Push 5 images to GHCR, and add a deploy job that starts `docker-compose.deploy.yml` and checks `/health` | 8 | 2 | 3 | 6 | 3.3 |
+| | **Total: Week 3 (13/11–19/11)** | | **20** | **32** | **58** | **34.2** |
+
+### Final (20/11–23/11)
+
+Documentation and proof.
+
+| ID | Task | Req | O | M | P | E |
+|---|---|---|---:|---:|---:|---:|
+| D1 | `README.md`: decisions, boundaries, APIs, how to run, and Inventory with a sequence diagram | 1, 9 | 2 | 4 | 8 | 4.3 |
+| D2 | Swagger on all 4 services | 9 | 1 | 1 | 2 | 1.2 |
+| D3 | Run every check in `faerdigt-produkt.md`, fix what fails, and prepare the demo | 1–9 | 2 | 3 | 5 | 3.2 |
+| | **Total: Final (20/11–23/11)** | | **5** | **8** | **15** | **8.7** |
+
+## Totals
+
+| Group | O | M | P | E |
+|---|---:|---:|---:|---:|
+| Catalog | 9 | 18 | 33 | 19.1 |
+| Basket | 11 | 19 | 31 | 19.8 |
+| Ordering | 13 | 22 | 40 | 23.4 |
+| Inventory | 9 | 14 | 24 | 14.9 |
+| Gateway | 6 | 11 | 21 | 11.8 |
+| Shared setup | 5 | 8 | 15 | 8.7 |
+| CI/CD | 4 | 6 | 12 | 6.6 |
+| Documentation | 5 | 8 | 15 | 8.7 |
+| **Total expected** | **62** | **106** | **191** | **113.0** |
+| Buffer (15%) | | | | 17.0 |
+| **Total with buffer** | | | | **130.0** |
+
+**New total: 113.0 hours expected + 17.0 hours buffer (15%) = 130.0 hours.**
+
+### Hours per week
+
+Capacity is 130 hours spread evenly over the 24 days, about 5.4 hours a day.
+
+| Period | Capacity | E | Spare |
+|---|---:|---:|---:|
+| Week 1 (30/10–5/11) | 37.9 | 35.4 | 2.5 |
+| Week 2 (6/11–12/11) | 37.9 | 34.7 | 3.2 |
+| Week 3 (13/11–19/11) | 37.9 | 34.2 | 3.7 |
+| Final (20/11–23/11) | 21.7 | 8.7 | 13.0 |
+| **Total** | **130.0** | **113.0** | **17.0** |
+
+Most of the spare time is in the final days on purpose, so a late week can spill over without moving the deadline.
+
+### How tight this is
+
+- **The buffer is thin.** If every task hit its pessimistic value, the work would take 191 hours, far beyond the 130 I have. The plan only works if I stick to the scope below.
+- **Checkpoints:** by 5/11, Catalog runs behind the gateway. By 12/11, Basket and gateway security are finished. If I miss a checkpoint by more than a day, I use the fallback below straight away.
+- **Fallback:** I keep Basket in the monolith and let Ordering read it through an API there, which saves about 20 hours. That still leaves Catalog, Ordering and Inventory, which meets "at least 3 microservices" only if Inventory counts as one of the 3. I need to check that with my instructor.
+
+## Later / out of scope
+
+None of these are needed to meet the criteria, so I don't start them before everything above is finished.
+
+| Item | Why it can wait |
+|---|---|
+| Payment service and its events | Payment is only an example in the assignment. The shop still takes no payments. |
+| Identity as its own service | The assignment doesn't require it, and moving sign-in is one of the riskiest tasks. |
+| Prometheus + Grafana | Seq, `/health` and the circuit breaker cover requirement 7. The assignment names them only as examples. |
+| WebStatus and Webhooks API | No requirement needs them. |
+| Outbox pattern | Without it, a crash between saving and publishing can lose an event. I accept this and document it in the README. |
+| `OrderCancelledIntegrationEvent`, `ProductCreatedIntegrationEvent`, `ProductPriceChangedIntegrationEvent` | Nothing would consume the first, because a rejected order has nothing to release. Stock is seeded instead of created from events, and basket prices stay fixed when the item is added, as they do today. |
+| Admin restock API and stock for new products | I seed stock for the existing products. A product with no stock record is rejected. |
+| Shipping address form | Orders keep today's hard-coded test address. |
+| Moving the JWT key out of source code | `AuthorizationConstants.JWT_SECRET_KEY` stays as it is, which is only acceptable for a demo. |
+| Deployment to a real server or Azure | Automatic deployment runs on the CI runner, using the images from GHCR. |
+| Separate ADR files, and load tests beyond the gateway script | Decisions go in the README, as the assignment allows. |
+
+## Open questions for my instructor
+
+1. **Inventory:** the assignment describes it as already prepared ("det forberedte lagerstyringssystem"), but I have none, so I build it from scratch.
+2. **Deployment:** is deploying on the CI runner enough for "automatisk deployment" in requirement 8?
+3. **Service count:** does Inventory count towards the minimum of 3 microservices? This only matters if I need the fallback.

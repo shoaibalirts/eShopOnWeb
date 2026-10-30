@@ -1,8 +1,9 @@
 # The business story behind the migration
 
-This document explains **why** we are changing the eShopOnWeb architecture, in words a non-developer can follow.
+This document explains **why** I am changing the eShopOnWeb architecture, in words a non-developer can follow.
 It also maps the shop into its natural business areas.
 The detailed technical flows are in [01-monolith-flows.md](01-monolith-flows.md).
+[02-target-architecture.md](02-target-architecture.md) is the single source of truth for services, extraction order and event names.
 
 A few terms are used throughout:
 
@@ -16,36 +17,38 @@ A few terms are used throughout:
 ## 1. The business lead's story
 
 > I run an online shop for developers.
-> We sell branded merchandise: mugs, T-shirts, sweatshirts, sticker sheets and USB sticks.
+> I sell branded merchandise: mugs, T-shirts, sweatshirts, sticker sheets and USB sticks.
 > The brands are names that developers love, like .NET, Azure, Visual Studio and SQL Server.
 >
-> Our customers are developers and tech fans.
+> My customers are developers and tech fans.
 > Many of them just browse without an account.
 > They can still fill a basket.
-> When they want to buy, they sign in, and we keep what they already picked.
-> Inside the company, our product managers and administrators keep the product list up to date.
+> When they want to buy, they sign in, and the shop keeps what they already picked.
+> Inside the company, my product managers and administrators keep the product list up to date.
 >
 > In the beginning, one website did everything, and that was fine.
-> Now we are growing, and the single website is holding us back:
+> Now the shop is growing, and the single website is holding it back:
 >
 > - **One mistake stops everything.** A bug in checkout can take the whole shop down, including the product pages.
-> - **Every change is a big release.** Changing a product photo and changing how orders work go out together. So we release rarely, and every release is risky.
-> - **We cannot grow the busy parts alone.** On sale days, thousands of people browse but only a few buy. We still have to make the whole website bigger, which is expensive.
+> - **Every change is a big release.** Changing a product photo and changing how orders work go out together. So I release rarely, and every release is risky.
+> - **I cannot grow the busy parts alone.** On sale days, thousands of people browse but only a few buy. I still have to make the whole website bigger, which is expensive.
 > - **Teams get in each other's way.** Everyone works in the same code and the same database. Nobody can move fast without asking everyone else.
-> - **Important features are missing.** We do not check stock before we sell. We do not take payments in the shop itself. Every order is shipped to one fixed test address. Adding these to the current website would make it even bigger and harder to change.
+> - **Important features are missing.** I do not check stock before I sell. I do not take payments in the shop itself. Every order is shipped to one fixed test address. Adding these to the current website would make it even bigger and harder to change.
 > - **Orders can go wrong half-way.** Placing an order is several separate steps. If the system crashes in the middle, a customer can end up with an order *and* a full basket.
 >
-> So we will split the shop into smaller services, one per business area: products, baskets, orders and customer accounts.
+> So I will split the most tangled and busiest parts of the shop into smaller services: products, baskets, orders and stock.
 > Each service can be changed, released and scaled on its own.
 >
-> We will **not** rebuild everything at once. That is too risky, and the shop must stay open.
-> Instead we use the Strangler Pattern.
-> We put a front door (a **gateway**) in front of the shop.
+> I will **not** rebuild everything at once. That is too risky, and the shop must stay open.
+> Instead I use the Strangler Pattern.
+> I put a front door (a **gateway**) in front of the shop.
 > At first it sends every visitor to the old website.
-> Then we build one new service at a time, and move that part of the traffic to it.
-> If something goes wrong, we simply send the traffic back.
-> We start with the product catalog, because it is the safest part.
-> Step by step, the old website does less and less, until we can turn it off.
+> Then I build one new service at a time, and move that part of the traffic to it.
+> If something goes wrong, I simply send the traffic back.
+> I start with the product catalog, because it is the safest part.
+> Stock is a brand new service, and orders move last, because they are the most tangled part.
+> Customer accounts stay in the old website, and payments and the real shipping address come later.
+> Step by step, the old website does less and less, until it only serves the pages and handles customer accounts.
 
 ---
 
@@ -60,13 +63,17 @@ graph LR
     Catalog["Catalog<br/>(products, brands, types)"]
     Basket["Basket<br/>(what the shopper picked)"]
     Ordering["Ordering<br/>(placed orders, order emails)"]
+    Inventory["Inventory (new)<br/>(stock, reservations)"]
 
-    Catalog -- "productId + current price" --> Basket
+    Catalog -- "productId, current price" --> Basket
     Catalog -- "productId, name, picture" --> Ordering
     Basket -- "buyerId + basket items (productId, qty, price)" --> Ordering
-    Identity -- "buyerId (user name), login event → merge basket" --> Basket
+    Identity -- "buyerId (user name), sign-in → merge basket" --> Basket
     Identity -- "buyerId (user name)" --> Ordering
     Identity -- "Administrator / Product Manager role" --> Catalog
+    Ordering -- "order confirmed → empty basket" --> Basket
+    Ordering -- "order started" --> Inventory
+    Inventory -- "stock reserved or rejected" --> Ordering
     Basket -. "item count for page header" .-> Catalog
 ```
 
@@ -76,7 +83,7 @@ The dotted arrow is a hidden link in today's code: every product page reads the 
 
 - **productId** is the product's number (`CatalogItem.Id`). Basket and Ordering store it as `CatalogItemId`.
 - **buyerId** is a plain text value. For a signed-in customer it is their user name (e-mail). For an anonymous visitor it is a random ID kept in a **cookie** (a small piece of data the browser stores) called `eShop`.
-- All four areas live in the same Web application today. Catalog, Basket and Ordering also share **one database** (`CatalogContext`). Only Identity has its own database (`AppIdentityDbContext`).
+- Inventory is new and doesn't exist in the code today. The other four areas live in the same Web application. Catalog, Basket and Ordering also share **one database** (`CatalogContext`). Only Identity has its own database (`AppIdentityDbContext`).
 
 ---
 
@@ -90,7 +97,7 @@ Shoppers read it to browse and filter. Administrators change it.
 ### Key words (ubiquitous language)
 **Ubiquitous language** means the words the business and the developers both use for this area.
 
-- **Catalog item / product**: one thing we sell, e.g. ".NET Bot Black Sweatshirt".
+- **Catalog item / product**: one thing the shop sells, e.g. ".NET Bot Black Sweatshirt".
 - **Brand**: who the product is about, e.g. ".NET", "Azure".
 - **Type**: what kind of product it is, e.g. "Mug", "T-Shirt".
 - **Price**: the current selling price.
@@ -161,7 +168,7 @@ When a visitor signs in, their anonymous basket is merged into their account's b
 
 ### Needs from others / gives to others
 
-- **Needs:** from Catalog, the product's price when it is added, and the name and picture when the basket is shown. From Identity, the buyer's user name, plus a signal when someone signs in so it can merge baskets.
+- **Needs:** from Catalog, the product's price when it is added, and the name and picture when the basket is shown. From Identity, the buyer's user name. Right after someone signs in, the web app asks Basket to merge the baskets. From Ordering, a signal when an order is confirmed, so it can empty the basket.
 - **Gives:** to Ordering, the buyer ID and the list of items with quantities and saved prices. To every page header, the number of items in the basket.
 
 ### Main flow: a shopper adds a product to the basket
@@ -200,7 +207,7 @@ After an order is placed, it sends a confirmation e-mail.
 - **Ship-to address**: where the order goes.
 - **Total**: sum of unit price × units for all order items.
 - **Checkout**: the step where the customer turns their basket into an order.
-- **Order created**: the event that tells the rest of the shop "a new order exists".
+- **Order created**: today's in-process event (`OrderCreatedEvent`) that says "a new order exists". In the new design it becomes `OrderStartedIntegrationEvent`.
 
 ### What belongs to it in eShopOnWeb
 
@@ -212,12 +219,12 @@ After an order is placed, it sends a confirmation e-mail.
 | Services | `OrderService` / `IOrderService` |
 | Pages / UI | `Pages/Basket/Checkout`, `Pages/Basket/Success`, `Controllers/OrderController` with `Features/MyOrders` and `Features/OrderDetails` |
 | Tables (CatalogDB) | `Orders` (address stored in the same row), `OrderItems` (item-ordered copy stored in the same row) |
-| Not used yet | `Buyer`, `PaymentMethod` (`BuyerAggregate`) exist as classes but have no table and no code using them. They hint at a future Payment area. |
+| Not used yet | `Buyer`, `PaymentMethod` (`BuyerAggregate`) exist as classes but have no table and no code using them. They hint at a future Payment area, which is out of scope for now. |
 
 ### Needs from others / gives to others
 
 - **Needs:** from Basket, the buyer ID and the basket items with their saved prices. From Catalog, each product's name and picture for the frozen copy. From Identity, the signed-in user name (checkout requires sign-in).
-- **Gives:** the "order created" signal. Today only the e-mail sender listens. In the new design, Basket (to empty the basket) and new Inventory and Payment services will listen too.
+- **Gives:** today, the "order created" signal, and only the e-mail sender listens. In the new design, Ordering announces when an order is started and when it is confirmed. Inventory listens for started orders, and Basket empties the basket when an order is confirmed. Basket does not empty on order start, so a customer whose order is rejected keeps their basket.
 
 ### Main flow: a customer places an order
 
@@ -235,9 +242,9 @@ After an order is placed, it sends a confirmation e-mail.
 ### Good candidate to extract first? **No, it should be last.**
 
 - It reaches into **three** business areas (Basket, Catalog and its own Orders) in one database. This is the most tangled part of the shop.
-- The steps "save order" and "delete basket" are not done together. When they become separate services, we need a planned sequence with undo steps (a **saga**) instead.
-- On the positive side, it already uses an **event** ("order created") to send the e-mail. That is a clean seam. It can later be replaced by a message on a message broker (a post office between services, e.g. RabbitMQ).
-- It is the place where new stock and payment features will plug in, so it should move once Catalog and Basket are stable.
+- The steps "save order" and "delete basket" are not done together. When they become separate services, I need a planned sequence of events instead.
+- On the positive side, it already uses an **event** ("order created") to send the e-mail. That is a clean seam. It can later be replaced by `OrderStartedIntegrationEvent`, a message on a message broker (a post office between services, in my case RabbitMQ).
+- It is the place where the new stock check plugs in, so it should move once Catalog, Basket and Inventory are in place.
 
 ---
 
@@ -268,8 +275,8 @@ It also stores roles that decide who may manage products and users.
 
 ### Needs from others / gives to others
 
-- **Needs:** nothing from the other areas to do its own job. One exception: at sign-in it calls Basket to merge the anonymous basket.
-- **Gives:** the buyer ID (user name) to Basket and Ordering. Roles to Catalog admin. Tokens to the admin app and PublicApi.
+- **Needs:** nothing from the other areas to do its own job. Today the sign-in page merges the anonymous basket in-process. In the new design, the same page calls the Basket service over HTTP.
+- **Gives:** the buyer ID (user name) to Basket and Ordering. Roles to Catalog admin. Tokens to the admin app, the web app and the gateway, which checks them.
 
 ### Main flow: a visitor signs in
 
@@ -282,21 +289,56 @@ It also stores roles that decide who may manage products and users.
 7. → The cookie is deleted.
 8. → The customer is sent back to where they were, now with their name shown in the header.
 
-### Good candidate to extract first? **Partly, but not as the first move.**
+### Good candidate to extract first? **No. It stays in the monolith for this project.**
 
-- **For:** it already has its **own database**, and the PublicApi already issues tokens. Its data is the least tangled of all.
-- **Against:** *every* other area depends on it. If it breaks, nobody can sign in or check out, and admins are locked out.
-- **Against:** security work (token checks at the gateway, cookie and token sharing between old and new parts) must be done carefully.
-- **Recommendation:** keep it where it is at first. Let the gateway and new services check the existing tokens. Move it into its own service once the gateway is proven with Catalog.
+- **For moving it:** it already has its **own database**, and the PublicApi already issues tokens. Its data is the least tangled of all.
+- **Against moving it:** *every* other area depends on it. If it breaks, nobody can sign in or check out, and admins are locked out.
+- **Against moving it:** security work (cookie and token sharing between old and new parts) must be done carefully, and the assignment doesn't require it.
+- **Decision:** I keep it where it is. The gateway and new services check the existing tokens. Moving it is listed under "Later / out of scope" in [PLAN.md](PLAN.md).
 
 ---
 
-## 7. Suggested extraction order
+## 7. Inventory (new)
+
+### Responsibility
+Inventory keeps track of how much stock the shop has.
+It reserves products when a customer checks out.
+It does not exist in eShopOnWeb today. I build it from scratch as a new service.
+
+### Key words (ubiquitous language)
+
+- **Stock**: how many of a product the shop has.
+- **Reservation**: stock set aside for one order, so that nobody else can buy it.
+
+### Needs from others / gives to others
+
+- **Needs:** from Ordering, a signal when an order is started. Stock for the existing products is seeded when the service starts.
+- **Gives:** to Ordering, the signal that stock was reserved or rejected.
+
+### Main flow: stock is reserved at checkout
+
+1. Ordering announces that a new order has started.
+2. → Inventory checks whether there is enough stock for every line.
+3. → If there is, it reserves the stock and announces that stock is reserved.
+4. → If not, it announces that stock is rejected, and the order is cancelled.
+
+### Good candidate to extract first? **No, and nothing is extracted.**
+
+- It is new code, so building it can't break the shop.
+- It only becomes useful once Ordering sends it orders, so I build it just before Ordering moves.
+
+---
+
+## 8. Extraction order
+
+[02-target-architecture.md](02-target-architecture.md) is the single source of truth for this order.
 
 | Step | Area | Why this order |
 |---|---|---|
 | 0 | Gateway in front of the monolith | The Strangler front door. All traffic still goes to the old website. |
 | 1 | **Catalog** | Mostly reading, few dependencies, highest traffic. |
 | 2 | **Basket** | Clear edges once Catalog is an API. Must keep anonymous baskets and the sign-in merge. |
-| 3 | **Identity** | Already a separate database. Needs the gateway and token checks to be solid first. |
-| 4 | **Ordering** | Most tangled. Becomes a saga driven by the "order created" message. New Inventory and Payment services join here. |
+| 3 | **Inventory** (new) | New code that can't break the shop. Must be ready before Ordering uses it. |
+| 4 | **Ordering** | Most tangled. The checkout steps are driven by events, and today's in-process event is replaced by RabbitMQ events. |
+
+Identity stays in the monolith, and Payment is out of scope. See [PLAN.md](PLAN.md).

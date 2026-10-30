@@ -168,7 +168,7 @@ sequenceDiagram
 
 **Observations for the migration**
 - Basket reads `CatalogItem` directly from the shared DB twice (price at add-time, name/picture at view-time).
-  In a **Basket service** this becomes a call to the Catalog API (or a local read-model fed by `ProductPriceChanged` events).
+  In a **Basket service** this becomes a call to the Catalog API.
 - Buyer identity is either a username or an anonymous GUID cookie — the gateway/Basket service must keep supporting both.
 - Login triggers a basket merge — an Identity → Basket dependency to preserve.
 
@@ -240,9 +240,9 @@ sequenceDiagram
 
 **Observations for the migration**
 - `OrderService` reaches into **three aggregates** (Basket, CatalogItem, Order) in one database — the main thing to untangle.
-- No **stock check / reservation** and no **payment** — this is exactly where the new Inventory and Payment services plug in.
+- No **stock check / reservation** and no **payment** — the new Inventory service adds the stock check. Payment is out of scope for now.
 - The three writes (update quantities → insert order → delete basket) are **not in one transaction**; a crash between
-  them leaves an order *and* a basket. In the microservice design this becomes an explicit saga with compensations.
+  them leaves an order *and* a basket. In the microservice design this becomes a sequence of events.
 - `OrderCreatedEvent` is already a domain event published in-process via Mediator — the natural seam to replace with a
-  RabbitMQ integration event (`OrderCreated`) consumed by Inventory, Payment, Basket and Notification.
+  RabbitMQ integration event (`OrderStartedIntegrationEvent`) consumed by Inventory.
 - Shipping address is hard-coded (`123 Main St.`).
