@@ -75,4 +75,5 @@ The plan targets the semester deadline of **23/11-2026** with **~130 hours**: 11
 1. Put the YARP gateway in front of the monolith, with all traffic still going to the monolith.
 2. Set up RabbitMQ, Seq and the CI pipeline.
 3. Extract Catalog as the first service.
-4. Check three questions with my instructor: building Inventory from scratch, what counts as automatic deployment, and whether Inventory counts towards the minimum of 3 microservices.
+
+My three questions for my instructor are answered (30/10-2026): I build Inventory myself to track stock levels, deploying on the CI runner counts as automatic deployment, and Inventory counts towards the minimum of 3 microservices.

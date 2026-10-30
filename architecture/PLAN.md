@@ -124,7 +124,7 @@ Most of the spare time is in the final days on purpose, so a late week can spill
 
 - **The buffer is thin.** If every task hit its pessimistic value, the work would take 191 hours, far beyond the 130 I have. The plan only works if I stick to the scope below.
 - **Checkpoints:** by 5/11, Catalog runs behind the gateway. By 12/11, Basket and gateway security are finished. If I miss a checkpoint by more than a day, I use the fallback below straight away.
-- **Fallback:** I keep Basket in the monolith and let Ordering read it through an API there, which saves about 20 hours. That still leaves Catalog, Ordering and Inventory, which meets "at least 3 microservices" only if Inventory counts as one of the 3. I need to check that with my instructor.
+- **Fallback:** I keep Basket in the monolith and let Ordering read it through an API there, which saves about 20 hours. That still leaves Catalog, Ordering and Inventory, which is confirmed to meet the requirement of at least 3 microservices, because my instructor confirmed that Inventory counts towards the 3.
 
 ## Later / out of scope
 
@@ -144,8 +144,10 @@ None of these are needed to meet the criteria, so I don't start them before ever
 | Deployment to a real server or Azure | Automatic deployment runs on the CI runner, using the images from GHCR. |
 | Separate ADR files, and load tests beyond the gateway script | Decisions go in the README, as the assignment allows. |
 
-## Open questions for my instructor
+## Clarified with instructor (30/10-2026)
 
-1. **Inventory:** the assignment describes it as already prepared ("det forberedte lagerstyringssystem"), but I have none, so I build it from scratch.
-2. **Deployment:** is deploying on the CI runner enough for "automatisk deployment" in requirement 8?
-3. **Service count:** does Inventory count towards the minimum of 3 microservices? This only matters if I need the fallback.
+My instructor Jakob answered my three questions:
+
+1. **Inventory:** it is simply a system I build myself to track stock levels.
+2. **Deployment:** deploying on the CI runner counts as "automatisk deployment" for requirement 8.
+3. **Service count:** Inventory counts towards the minimum of 3 microservices.

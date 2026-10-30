@@ -75,4 +75,5 @@ Planen sigter mod semesterfristen **23/11-2026** med **~130 timer**: 113,0 forve
 1. Sætte YARP-gatewayen foran monolitten, mens al trafik stadig går til monolitten.
 2. Sætte RabbitMQ, Seq og CI-pipelinen op.
 3. Udskille Catalog som den første service.
-4. Afklare tre spørgsmål med min underviser: at jeg bygger Inventory fra bunden, hvad der tæller som automatisk deployment, og om Inventory tæller med i minimum 3 microservices.
+
+Mine tre spørgsmål til min underviser er besvaret (30/10-2026): Jeg bygger selv Inventory til at holde styr på beholdningen, deployment på CI-runneren tæller som automatisk deployment, og Inventory tæller med i minimum 3 microservices.
