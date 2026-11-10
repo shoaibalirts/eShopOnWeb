@@ -36,19 +36,21 @@ A few terms are used throughout:
 > - **Important features are missing.** I do not check stock before I sell. I do not take payments in the shop itself. Every order is shipped to one fixed test address. Adding these to the current website would make it even bigger and harder to change.
 > - **Orders can go wrong half-way.** Placing an order is several separate steps. If the system crashes in the middle, a customer can end up with an order *and* a full basket.
 >
-> So I will split the most tangled and busiest parts of the shop into smaller services: products, baskets, orders and stock.
-> Each service can be changed, released and scaled on its own.
+> So I start with the gap that hurts most on busy days: stock.
+> I build a new stock service (**Inventory**) beside the existing website.
+> It can be changed, released and scaled on its own.
 >
 > I will **not** rebuild everything at once. That is too risky, and the shop must stay open.
 > Instead I use the Strangler Pattern.
 > I put a front door (a **gateway**) in front of the shop.
 > At first it sends every visitor to the old website.
-> Then I build one new service at a time, and move that part of the traffic to it.
-> If something goes wrong, I simply send the traffic back.
-> I start with the product catalog, because it is the safest part.
-> Stock is a brand new service, and orders move last, because they are the most tangled part.
-> Customer accounts stay in the old website, and payments and the real shipping address come later.
-> Step by step, the old website does less and less, until it only serves the pages and handles customer accounts.
+> Then stock questions go to the new service, and every new order checks stock through messages.
+> If something goes wrong, I switch the stock check off, and the shop works as it did before.
+>
+> This project is the first step.
+> Products, baskets, orders and customer accounts stay in the old website for now.
+> The product catalog is the natural next part to move, because it is the safest and the busiest.
+> Payments and the real shipping address come later.
 
 ---
 
@@ -71,19 +73,20 @@ graph LR
     Identity -- "buyerId (user name), sign-in → merge basket" --> Basket
     Identity -- "buyerId (user name)" --> Ordering
     Identity -- "Administrator / Product Manager role" --> Catalog
-    Ordering -- "order confirmed → empty basket" --> Basket
-    Ordering -- "order started" --> Inventory
+    Ordering -- "order placed → empty basket" --> Basket
+    Ordering -- "order created" --> Inventory
     Inventory -- "stock reserved or rejected" --> Ordering
     Basket -. "item count for page header" .-> Catalog
 ```
 
-The dotted arrow is a hidden link in today's code: every product page reads the basket table to show the item count in the header.
+The dotted arrow is a hidden link in today's code: every page reads the basket table to show the item count in the header.
 
 **Notes on the shared words**
 
 - **productId** is the product's number (`CatalogItem.Id`). Basket and Ordering store it as `CatalogItemId`.
 - **buyerId** is a plain text value. For a signed-in customer it is their user name (e-mail). For an anonymous visitor it is a random ID kept in a **cookie** (a small piece of data the browser stores) called `eShop`.
 - Inventory is new and doesn't exist in the code today. The other four areas live in the same Web application. Catalog, Basket and Ordering also share **one database** (`CatalogContext`). Only Identity has its own database (`AppIdentityDbContext`).
+- In this project, **Inventory is the only area that becomes its own service**. The other four stay in the monolith. They are still separate business areas: a bounded context describes the business, and a service is a decision about how to build it.
 
 ---
 
@@ -130,13 +133,15 @@ Shoppers read it to browse and filter. Administrators change it.
 6. → It keeps the result in the cache for next time.
 7. → The shopper sees a grid of products with filters and an "Add to basket" button on each.
 
-### Good candidate to extract first? **Yes, the best one.**
+### Good candidate to extract? **Yes, the best next one after this project.**
+
+In this project, Catalog stays in the monolith. Inventory is the only new service. If I extract more later, Catalog goes first:
 
 - It is almost only **reading**. Browsing never changes data, so moving it is low risk.
 - It depends on almost nothing else. It only needs to know who is an admin.
 - It gets the most traffic, so it gains the most from being scaled on its own.
 - The PublicApi already has catalog endpoints, so a starting point exists.
-- One thing to fix on the way: the basket counter in the page header reads the basket table directly. That link must become a call to the Basket service.
+- One thing to watch: the basket counter in every page header reads the basket table directly. While Basket stays in the monolith this is harmless. It must become a call to the Basket service when Basket moves.
 
 ---
 
@@ -168,7 +173,7 @@ When a visitor signs in, their anonymous basket is merged into their account's b
 
 ### Needs from others / gives to others
 
-- **Needs:** from Catalog, the product's price when it is added, and the name and picture when the basket is shown. From Identity, the buyer's user name. Right after someone signs in, the web app asks Basket to merge the baskets. From Ordering, a signal when an order is confirmed, so it can empty the basket.
+- **Needs:** from Catalog, the product's price when it is added, and the name and picture when the basket is shown. From Identity, the buyer's user name. Right after someone signs in, the web app asks Basket to merge the baskets. From Ordering, a signal when an order is placed, so it can empty the basket.
 - **Gives:** to Ordering, the buyer ID and the list of items with quantities and saved prices. To every page header, the number of items in the basket.
 
 ### Main flow: a shopper adds a product to the basket
@@ -183,7 +188,9 @@ When a visitor signs in, their anonymous basket is merged into their account's b
 8. → The shopper is taken to the basket page, which shows each item with its name, picture, quantity and price.
 9. → Later, when the shopper signs in, their anonymous basket is merged into their account's basket and the cookie is removed.
 
-### Good candidate to extract first? **No, but a good second step.**
+### Good candidate to extract? **Later, after Catalog.**
+
+In this project, Basket stays in the monolith.
 
 - It **writes** data on every click, so mistakes are felt directly by shoppers.
 - It reads the catalog database directly, twice per flow. That must first become a call to the Catalog service, so Catalog should already be extracted.
@@ -207,7 +214,8 @@ After an order is placed, it sends a confirmation e-mail.
 - **Ship-to address**: where the order goes.
 - **Total**: sum of unit price × units for all order items.
 - **Checkout**: the step where the customer turns their basket into an order.
-- **Order created**: today's in-process event (`OrderCreatedEvent`) that says "a new order exists". In the new design it becomes `OrderStartedIntegrationEvent`.
+- **Order created**: today's in-process event (`OrderCreatedEvent`) that says "a new order exists". In my design, the monolith translates it into an `order.created` message on RabbitMQ.
+- **Order status** (new): `Pending` until Inventory answers, then `Confirmed` or `Cancelled`.
 
 ### What belongs to it in eShopOnWeb
 
@@ -224,7 +232,7 @@ After an order is placed, it sends a confirmation e-mail.
 ### Needs from others / gives to others
 
 - **Needs:** from Basket, the buyer ID and the basket items with their saved prices. From Catalog, each product's name and picture for the frozen copy. From Identity, the signed-in user name (checkout requires sign-in).
-- **Gives:** today, the "order created" signal, and only the e-mail sender listens. In the new design, Ordering announces when an order is started and when it is confirmed. Inventory listens for started orders, and Basket empties the basket when an order is confirmed. Basket does not empty on order start, so a customer whose order is rejected keeps their basket.
+- **Gives:** today, the "order created" signal, and only the e-mail sender listens. In my design, the monolith also publishes `order.created` to RabbitMQ, and Inventory listens for it. Emptying the basket doesn't change: it still happens inside the monolith at checkout.
 
 ### Main flow: a customer places an order
 
@@ -239,12 +247,14 @@ After an order is placed, it sends a confirmation e-mail.
 9. → It deletes the basket.
 10. → The customer sees the "Thank you" page and can later find the order under **My Orders**.
 
-### Good candidate to extract first? **No, it should be last.**
+### Good candidate to extract? **No, it should be last.**
+
+In this project, Ordering stays in the monolith, but it is where the new stock check plugs in.
 
 - It reaches into **three** business areas (Basket, Catalog and its own Orders) in one database. This is the most tangled part of the shop.
-- The steps "save order" and "delete basket" are not done together. When they become separate services, I need a planned sequence of events instead.
-- On the positive side, it already uses an **event** ("order created") to send the e-mail. That is a clean seam. It can later be replaced by `OrderStartedIntegrationEvent`, a message on a message broker (a post office between services, in my case RabbitMQ).
-- It is the place where the new stock check plugs in, so it should move once Catalog, Basket and Inventory are in place.
+- The steps "save order" and "delete basket" are not done together. If they ever become separate services, I need a planned sequence of events instead.
+- It already uses an **event** ("order created") to send the e-mail. That is a clean seam, and I use it now: the monolith translates it into an `order.created` message on a message broker (a post office between services, in my case RabbitMQ).
+- It gets a new **order status**, so the order can wait as `Pending` until Inventory answers.
 
 ---
 
@@ -275,8 +285,8 @@ It also stores roles that decide who may manage products and users.
 
 ### Needs from others / gives to others
 
-- **Needs:** nothing from the other areas to do its own job. Today the sign-in page merges the anonymous basket in-process. In the new design, the same page calls the Basket service over HTTP.
-- **Gives:** the buyer ID (user name) to Basket and Ordering. Roles to Catalog admin. Tokens to the admin app, the web app and the gateway, which checks them.
+- **Needs:** nothing from the other areas to do its own job. The sign-in page merges the anonymous basket in-process, and that doesn't change, because Basket stays in the monolith.
+- **Gives:** the buyer ID (user name) to Basket and Ordering. Roles to Catalog admin. Tokens to the admin app, the web app and the gateway, which checks them before an admin may restock in Inventory.
 
 ### Main flow: a visitor signs in
 
@@ -289,12 +299,12 @@ It also stores roles that decide who may manage products and users.
 7. → The cookie is deleted.
 8. → The customer is sent back to where they were, now with their name shown in the header.
 
-### Good candidate to extract first? **No. It stays in the monolith for this project.**
+### Good candidate to extract? **No. It stays in the monolith for this project.**
 
 - **For moving it:** it already has its **own database**, and the PublicApi already issues tokens. Its data is the least tangled of all.
 - **Against moving it:** *every* other area depends on it. If it breaks, nobody can sign in or check out, and admins are locked out.
 - **Against moving it:** security work (cookie and token sharing between old and new parts) must be done carefully, and the assignment doesn't require it.
-- **Decision:** I keep it where it is. The gateway and new services check the existing tokens. Moving it is listed under "Later / out of scope" in [PLAN.md](PLAN.md).
+- **Decision:** I keep it where it is. The gateway checks the existing tokens. Moving it is out of scope for this project.
 
 ---
 
@@ -308,37 +318,38 @@ It does not exist in eShopOnWeb today. I build it from scratch as a new service.
 ### Key words (ubiquitous language)
 
 - **Stock**: how many of a product the shop has.
-- **Reservation**: stock set aside for one order, so that nobody else can buy it.
+- **Reservation**: stock set aside for one order, so that nobody else can buy it. All lines of an order are reserved, or none.
+- **Restock**: an administrator adds stock for a product.
 
 ### Needs from others / gives to others
 
-- **Needs:** from Ordering, a signal when an order is started. Stock for the existing products is seeded when the service starts.
-- **Gives:** to Ordering, the signal that stock was reserved or rejected.
+- **Needs:** from Ordering, the `order.created` message. Stock for the existing products is seeded when the service starts. From Identity, the administrator's token for restocking.
+- **Gives:** to Ordering, the answer `stock.reserved` or `stock.rejected`. To the product page, how many of a product are available.
 
 ### Main flow: stock is reserved at checkout
 
-1. Ordering announces that a new order has started.
+1. The monolith saves the order as `Pending` and publishes `order.created`.
 2. → Inventory checks whether there is enough stock for every line.
-3. → If there is, it reserves the stock and announces that stock is reserved.
-4. → If not, it announces that stock is rejected, and the order is cancelled.
+3. → If there is, it reserves the stock and publishes `stock.reserved`. The order becomes `Confirmed`.
+4. → If not, it publishes `stock.rejected`. The order becomes `Cancelled`.
 
-### Good candidate to extract first? **No, and nothing is extracted.**
+### Good candidate? **Yes. It is the one service I build.**
 
-- It is new code, so building it can't break the shop.
-- It only becomes useful once Ordering sends it orders, so I build it just before Ordering moves.
+- It fixes a real gap: today the shop doesn't check stock before it sells.
+- It is new code, so nothing has to be cut out of the monolith, and a feature flag turns it off if something goes wrong.
+- Its data is small and clear: only stock and reservations.
+- The assignment requires a stock management system as its own microservice, and my instructor confirmed on 6/11-2026 that this one service is enough because I work alone.
 
 ---
 
-## 8. Extraction order
+## 8. Strangler steps in this project
 
-[02-target-architecture.md](02-target-architecture.md) is the single source of truth for this order.
+[02-target-architecture.md](02-target-architecture.md) is the single source of truth for these steps.
 
-| Step | Area | Why this order |
+| Step | What changes | Why this order |
 |---|---|---|
 | 0 | Gateway in front of the monolith | The Strangler front door. All traffic still goes to the old website. |
-| 1 | **Catalog** | Mostly reading, few dependencies, highest traffic. |
-| 2 | **Basket** | Clear edges once Catalog is an API. Must keep anonymous baskets and the sign-in merge. |
-| 3 | **Inventory** (new) | New code that can't break the shop. Must be ready before Ordering uses it. |
-| 4 | **Ordering** | Most tangled. The checkout steps are driven by events, and today's in-process event is replaced by RabbitMQ events. |
+| 1 | `/api/inventory/*` goes to the new **Inventory** service | New code that can't break the shop. |
+| 2 | Checkout checks stock through RabbitMQ, and the product page shows availability | The new service starts doing real work, behind a feature flag for instant rollback. |
 
-Identity stays in the monolith, and Payment is out of scope. See [PLAN.md](PLAN.md).
+**After this project:** Catalog → Basket → Ordering is the natural order for further extraction. Catalog is mostly reading, Basket needs Catalog as an API first, and Ordering is the most tangled. Identity stays in the monolith, and Payment is out of scope.

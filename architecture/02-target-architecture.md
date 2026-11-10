@@ -1,149 +1,126 @@
 # Target architecture
 
-This is my own microservice design for eShopOnWeb, sized for one developer and the deadline of 23/11-2026. It builds on the business areas in [00-business-story.md](00-business-story.md),
-the code coupling in [01-monolith-flows.md](01-monolith-flows.md), and the instructors' eShopOnContainers picture.
+This is my microservice design for eShopOnWeb. I work alone, so my instructor Jakob confirmed on 6/11-2026 that I build **one** microservice, **Inventory**, beside the monolith. I submit on 22/11-2026.
+It builds on the business areas in [00-business-story.md](00-business-story.md) and the code coupling in [01-monolith-flows.md](01-monolith-flows.md).
 
-This document is the single source of truth for services, extraction order and event names. The work is planned in [PLAN.md](PLAN.md).
-
-The diagram shows the system **during migration**. The monolith (dashed boxes) gets smaller at each step. At the end it still serves the pages and handles sign-in, user management and JWT tokens.
+This document is the single source of truth for the service, the routes and the message names. The work is planned in [PLAN.md](PLAN.md).
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 130, "rankSpacing": 130, "wrappingWidth": 600}}}%%
 graph LR
-    subgraph Clients["Client apps"]
-        Shop["MVC web app<br/>(shop pages in browser)"]
-        Admin["Blazor admin<br/>(WebAssembly in browser)"]
+    Browser["Browser<br/>(shop pages, admin)"]
+
+    GW["YARP gateway<br/>JWT on restock, rate limiting,<br/>round-robin to Inventory replicas"]
+
+    Mono["eShopOnWeb monolith<br/>(Web + PublicApi)<br/>catalog, basket, orders, sign-in<br/>feature flag StockCheck:Enabled"]
+    MonoDB[("Monolith databases<br/>CatalogDB + IdentityDB")]
+
+    Inv["Inventory service<br/>(2 replicas)"]
+    InvDB[("InventoryDb")]
+
+    subgraph MQ["RabbitMQ"]
+        EX{{"eshop.events<br/>(topic exchange)"}}
+        QInv["queue inventory.order-created<br/>bound to order.created"]
+        QMono["monolith queue<br/>bound to stock.*"]
+        DLX{{"dead-letter exchange"}}
     end
 
-    subgraph Docker["Docker host"]
-        subgraph Edge["Entry and messaging"]
-            GW["API Gateway (YARP)<br/>JWT auth, load balancing, rate limiting"]
-            Mono["Remaining monolith<br/>(Web + PublicApi, sign-in)"]
-            MonoDB[("Monolith DB<br/>(Identity + old shared tables)")]
-            MQ{{"RabbitMQ<br/>event bus"}}
-        end
+    Seq["Seq<br/>central logs"]
 
-        subgraph Shopping["Shopping services"]
-            Catalog["Catalog service<br/>(2 replicas)"]
-            CatalogDB[("CatalogDb")]
-            Basket["Basket service"]
-            BasketDB[("BasketDb")]
-        end
-
-        subgraph Fulfilment["Order and stock services"]
-            Ordering["Ordering service"]
-            OrderingDB[("OrderingDb")]
-            Inventory["Inventory service"]
-            InventoryDB[("InventoryDb")]
-        end
-
-        subgraph AdminServices["Admin services"]
-            Seq["Seq<br/>central logs"]
-        end
-    end
-
-    Shop -- "HTTP (sync)" --> GW
-    Admin -- "HTTP (sync)" --> GW
-    GW <-- "HTTP (sync)<br/>routes not yet moved,<br/>calls to moved services" --> Mono
-    GW -- "HTTP (sync)" --> Catalog
-    GW -- "HTTP (sync)" --> Basket
-    GW -- "HTTP (sync)" --> Ordering
-    GW -- "HTTP (sync)" --> Inventory
-
-    Basket -- "HTTP (sync)" --> Catalog
-    Ordering -- "HTTP (sync)" --> Basket
-    Ordering -- "HTTP (sync)" --> Catalog
+    Browser -- "HTTP" --> GW
+    GW -- "catch-all route" --> Mono
+    GW -- "/api/inventory/*" --> Inv
+    Mono -- "GET /api/inventory/{id}<br/>Polly circuit breaker" --> GW
 
     Mono --- MonoDB
-    Catalog --- CatalogDB
-    Basket --- BasketDB
-    Ordering --- OrderingDB
-    Inventory --- InventoryDB
+    Inv --- InvDB
 
-    Ordering <-. "event (async)<br/>publishes: OrderStartedIntegrationEvent,<br/>OrderConfirmedIntegrationEvent<br/>subscribes: StockReservedIntegrationEvent,<br/>StockRejectedIntegrationEvent" .-> MQ
-    MQ <-. "event (async)<br/>Inventory publishes: StockReservedIntegrationEvent,<br/>StockRejectedIntegrationEvent<br/>Inventory subscribes: OrderStartedIntegrationEvent" .-> Inventory
-    MQ -. "event (async)<br/>subscribes: OrderConfirmedIntegrationEvent" .-> Basket
+    Mono -. "publish order.created" .-> EX
+    EX -. "order.created" .-> QInv
+    QInv -. "consume, manual ack" .-> Inv
+    Inv -. "publish stock.reserved /<br/>stock.rejected" .-> EX
+    EX -. "stock.reserved,<br/>stock.rejected" .-> QMono
+    QMono -. "consume → order status" .-> Mono
+    QInv -. "after retry limit<br/>or poison message" .-> DLX
 
-    Shopping -- "HTTP (sync)<br/>logs" --> AdminServices
-    Fulfilment -- "HTTP (sync)<br/>logs" --> AdminServices
-
-    classDef migrating stroke-dasharray: 6 4,fill:#f5f5f5,stroke:#777
-    class Mono,MonoDB migrating
+    Mono -- "logs" --> Seq
+    GW -- "logs" --> Seq
+    Inv -- "logs" --> Seq
 ```
 
-Solid arrows are HTTP calls, where the caller waits for an answer. Dotted arrows are events, where the sender does not wait.
+Solid arrows are HTTP calls, where the caller waits for an answer. Dotted arrows are messages, where the sender does not wait.
 Plain lines join a service to the database only it may use.
 
-## Services
+## The parts
 
-| Service | Responsibility | Database | Talks to (sync) | Events published | Events subscribed |
-|---|---|---|---|---|---|
-| **Catalog** | Products, brands, types, current prices | CatalogDb (SQL Server) | None | None | None |
-| **Basket** | Baskets for signed-in and anonymous buyers, merge at sign-in | BasketDb (SQL Server) | Catalog (price, name, picture) | None | `OrderConfirmedIntegrationEvent` |
-| **Ordering** | Placing orders, order history, confirmation e-mail, order status | OrderingDb (SQL Server) | Basket (items), Catalog (name, picture) | `OrderStartedIntegrationEvent`, `OrderConfirmedIntegrationEvent` | `StockReservedIntegrationEvent`, `StockRejectedIntegrationEvent` |
-| **Inventory** | Stock levels and reservations at checkout | InventoryDb (SQL Server) | None | `StockReservedIntegrationEvent`, `StockRejectedIntegrationEvent` | `OrderStartedIntegrationEvent` |
-
-The gateway calls all four services. Sign-in stays in the monolith: `PublicApi` and `Web` issue JWT tokens with `ITokenClaimsService`, and the gateway validates them.
-
-**Checkout in short:** Ordering saves a *Pending* order and publishes `OrderStartedIntegrationEvent`. Inventory tries to reserve all the stock.
-If it can, it publishes `StockReservedIntegrationEvent`. Ordering then marks the order *Confirmed*, sends the e-mail and publishes `OrderConfirmedIntegrationEvent`, and Basket empties the basket.
-If it can't, it publishes `StockRejectedIntegrationEvent`. Ordering marks the order *Cancelled*, and the customer keeps their basket.
-
-## Differences from the instructors' suggestion
-
-### Kept
-
-| Part | Why |
+| Part | What it does |
 |---|---|
-| Gateway as the single entry point | The assignment requires it, and it lets me move traffic one route at a time. |
-| Catalog, Ordering and Basket services | They match the business areas in my business story. |
-| A database per service | The assignment requires it. Today Catalog, Basket and Ordering share one database, which is the main coupling to remove. |
-| RabbitMQ as the event bus | It runs in Docker with no cloud account, so I can demonstrate everything on one laptop. |
-| Seq logging | `src/eShopWeb.AppHost/AppHost.cs` already starts Seq, so I reuse it. |
-| Everything on one Docker host | It suits a one-person project and a classroom demo. |
+| **YARP gateway** (`src/Gateway`) | The single entry point. `/api/inventory/*` goes to Inventory, and everything else goes to the monolith through a catch-all route. It validates the monolith's JWT on the restock endpoint, applies rate limiting, and spreads calls over the 2 Inventory replicas (round-robin). |
+| **Monolith** | Still serves all pages, the catalog, the basket, orders and sign-in. It publishes `order.created`, listens for `stock.*`, and asks Inventory for availability on the product page. |
+| **Inventory** (`src/Inventory.Api`) | Owns stock levels and reservations in its own `InventoryDb`. It reserves stock when an order is created and answers with `stock.reserved` or `stock.rejected`. |
+| **RabbitMQ** | The topic exchange `eshop.events` routes messages by routing key. A dead-letter exchange receives messages that fail too many times. |
+| **Seq** | Central logs from the monolith, the gateway and Inventory, searchable by `CorrelationId`. |
 
-### Removed
+## Messages
 
-| Part | Why |
-|---|---|
-| Mobile app and SPA clients | eShopOnWeb has neither, and I don't plan to build them. |
-| Second gateway (mobile BFF) | I have no mobile client, so a second gateway would add work and no benefit. |
-| Identity as its own service | It already has its own database, and moving sign-in is one of the riskiest tasks. The assignment doesn't require it, so it stays in the monolith. |
-| Webhooks API and WebStatus | No requirement needs them. The services' `/health` endpoints cover status checks. |
+All messages go through the topic exchange `eshop.events`. The client library is RabbitMQ.Client 7.
 
-### Changed
-
-| Instructors' suggestion | My design | Why |
-|---|---|---|
-| Clients: mobile, MVC, SPA | MVC web app and Blazor admin | These are the clients eShopOnWeb already has. |
-| Two gateways | One YARP gateway that also handles JWT authentication, load balancing and rate limiting | The assignment requires all three at the gateway, and one gateway is simpler to configure. |
-| Identity, Catalog, Ordering, Basket | Catalog, Basket, Ordering and **Inventory** | The assignment requires Inventory. Identity stays in the monolith. |
-| Basket in Redis | Basket in **SQL Server** | Anonymous baskets last a long time (the cookie lasts 10 years), so they are lasting data rather than a cache. I can also reuse the existing data code. |
-| Ordering API + BackgroundTasks | **One Ordering service** | Incoming events drive my checkout steps, so I don't need a second process. |
-| RabbitMQ or Azure Service Bus | **RabbitMQ only** | One broker is enough, and it needs no cloud account. |
-| No remaining monolith | **Monolith box stays** | The picture shows a finished system. I keep the shop running while I migrate, and sign-in and the pages stay in the monolith. |
-
-Payment, Prometheus/Grafana and the other parts I postponed are listed under "Later / out of scope" in [PLAN.md](PLAN.md).
-
-## Strangler Pattern order
-
-**I extract Catalog first.** Before that, I put the gateway in front of the monolith and send all traffic to it, so nothing changes for shoppers.
-
-Catalog goes first because:
-
-- **It is the lowest risk.** Browsing only reads data, so a problem can't damage baskets or orders.
-- **It depends on almost nothing.** It only needs to know who is an administrator.
-- **It gives the fastest proof.** It is the first test of the gateway, the database split and routing, and `PublicApi` already has catalog endpoints to start from.
-- **It is the likely source of most traffic.** Most visitors browse and fewer buy, so it should gain the most from scaling on its own. This is an assumption I haven't measured.
-
-One step needs care. The monolith's basket and checkout code read products straight from the shared database, so they must switch to the Catalog API in the same step.
-
-| Step | What moves | Why now | What the monolith still does afterwards |
+| Routing key | Published by | Consumed by | Content |
 |---|---|---|---|
-| 0 | **Gateway** | Gives me the control point for moving traffic, and for sending it back if something fails. | Everything |
-| 1 | **Catalog** | The reasons above. | Pages, basket, orders, sign-in |
-| 2 | **Basket** | It needs the Catalog API. It writes data on every click, so it comes after I have proved the approach. The header's item count moves here too. | Pages, orders, sign-in |
-| 3 | **Inventory** (new) | It is new code, so nothing needs extracting and it can't break the shop. It must be ready before Ordering uses it. | Pages, orders, sign-in |
-| 4 | **Ordering** | The most tangled part. It needs Basket, Catalog and Inventory, and it replaces today's in-process `OrderCreatedEvent` with RabbitMQ events. | Pages, sign-in |
+| `order.created` | Monolith (`IntegrationEventPublisher` translates the in-process `OrderCreatedEvent`) | Inventory, through the queue `inventory.order-created` | `OrderId` and the order lines with quantities, nothing else |
+| `stock.reserved` | Inventory | Monolith | `CorrelationId = OrderId`. The order becomes `Confirmed`. |
+| `stock.rejected` | Inventory | Monolith | `CorrelationId = OrderId`. The order becomes `Cancelled`. |
 
-After step 4, the monolith's old catalog, basket and order tables are gone. Only the Identity data remains in the Monolith DB box.
+**Checkout in short:**
+
+1. The monolith saves the order as `Pending` and publishes `order.created`.
+2. Inventory tries to reserve every line: all lines or none, and never below zero.
+3. If it can, it publishes `stock.reserved`, and the monolith marks the order `Confirmed`.
+4. If it can't, it publishes `stock.rejected`, and the monolith marks the order `Cancelled`.
+
+My Orders shows the status.
+
+**Rules that keep it safe:**
+
+| Rule | How |
+|---|---|
+| Duplicate messages | Inventory allows one reservation per `OrderId`, so a message that arrives twice reserves only once (idempotent receiver). |
+| Two buyers, last unit | `rowversion` concurrency control, so only one of two reservations for the last unit succeeds. |
+| A message keeps failing | It is retried up to a limit and then moved to the dead-letter exchange, so it can't block the queue. |
+| Two replicas | Both read from the same queue (Competing Consumers), so each message is handled by one replica. |
+
+## Inventory API
+
+| Endpoint | Used by | Protection |
+|---|---|---|
+| `GET /api/inventory/{itemId}` | The product page, through the gateway, with a Polly circuit breaker and the fallback "availability unknown" | Open |
+| `PUT /api/inventory/{itemId}/stock` | Admin restock | JWT from the monolith, validated at the gateway |
+| `/health` | Health checks and the deploy job | Open |
+| `/swagger` | API documentation | Open |
+
+## Strangler Pattern steps
+
+| Step | What changes | Rollback |
+|---|---|---|
+| 0 | The gateway goes in front of the monolith. All traffic still reaches the monolith through the catch-all route. | Point traffic straight at the monolith. |
+| 1 | `/api/inventory/*` goes to the new Inventory service. | Remove the route. |
+| 2 | Checkout checks stock through RabbitMQ, and the product page shows availability. | Set `StockCheck:Enabled` to `false`, and the shop works as it does today. |
+
+Catalog, Basket, Ordering and Identity stay in the monolith for this project. They remain separate bounded contexts in [00-business-story.md](00-business-story.md), and Catalog is the natural next service to extract after the project.
+
+## Why Inventory
+
+I compared all five bounded contexts from [00-business-story.md](00-business-story.md) on the same five questions.
+
+| Context | Required by the assignment? | Risk to the shop if it breaks | Tangled today | Business value | Fits one person in 12 days? |
+|---|---|---|---|---|---|
+| Catalog | No | Low (mostly reading) | Medium (Basket and Ordering read its tables) | High (most traffic) | Medium |
+| Basket | No | Medium (writes on every click, sign-in merge) | High (reads Catalog, header item count) | Medium | Medium |
+| Ordering | No | High (checkout stops) | Highest (three areas in one flow) | High | No |
+| Identity | No | Highest (nobody can sign in) | Low (own database) | Low for this project | No (security work) |
+| **Inventory** | **Yes (requirement 3)** | **Low (new code, feature flag)** | **None (new)** | **High (stops overselling)** | **Yes (small data)** |
+
+Inventory is the only area the assignment requires as its own microservice, and it fixes a real gap: today the shop sells products without checking stock, which hurts most on busy sale days.
+Because it is new code, it can't break the existing shop, and a feature flag turns it off instantly.
+Its data is small and clear, so I can build it properly, with messaging, resilience and tests, in 12 days.
+
+Catalog would be the best choice if I had to *extract* existing code, and it is my next step after the project. My instructor Jakob confirmed on 6/11-2026 that one service, Inventory, is enough because I work alone.

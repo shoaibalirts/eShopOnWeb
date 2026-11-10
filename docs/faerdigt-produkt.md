@@ -1,18 +1,37 @@
 # Hvad er et færdigt produkt?
 
-Denne tabel oversætter hvert krav fra [opgavebeskrivelsen](opgavebeskrivelse.pdf) til et konkret kriterium, som kan tjekkes ved aflevering den 23/11-2026.
-Jeg arbejder alene. Arbejdet bag hvert kriterium er planlagt i [PLAN.md](../architecture/PLAN.md), og filer og tests nævnt her oprettes undervejs.
+Denne tabel oversætter hvert krav fra [opgavebeskrivelsen](opgavebeskrivelse.pdf) til et konkret kriterium, som kan tjekkes ved aflevering søndag den 22/11-2026.
+Jeg arbejder alene, og min underviser Jakob bekræftede den 6/11-2026, at jeg bygger **én** microservice, `Inventory`, ved siden af eShopOnWeb-monolitten.
+Arbejdet bag hvert kriterium er planlagt i [PLAN.md](../architecture/PLAN.md), og filer og tests nævnt her oprettes undervejs.
 
 ## Kravspecifikation → konkret kriterium
 
 | Krav | Hvordan ser vi, at det er opfyldt? |
 |---|---|
-| **1. Identificér og afgræns services** (min. 3 microservices, fx katalog, ordre, betaling) | 4 services i `src/Services/`: `Catalog`, `Basket`, `Ordering` og `Inventory`, hver med sin egen database og `Dockerfile`. Afsnittet "Servicegrænser" i `README.md` begrunder, hvorfor hver grænse ligger, hvor den gør. |
-| **2. Strangler Pattern implementering** — funktionalitet flyttes gradvist uden driftsafbrydelse | `src/Gateway/appsettings.json` ruter de flyttede API'er til de 4 services og alt andet (`{**catch-all}`) til monolitten. Der findes 5 git-tags, ét pr. trin: `strangler-0-gateway`, `strangler-1-catalog`, `strangler-2-basket`, `strangler-3-inventory` og `strangler-4-ordering`. `tests/EndToEndTests` består ved hvert tag. |
-| **3. Lagerstyringssystem** implementeret som selvstændig microservice | `src/Services/Inventory` kører i sin egen container med databasen `InventoryDb`. Efter en ordre på 2 stk. er beholdningen 2 lavere i `GET /api/inventory/{itemId}`. Testen `Reserve_more_than_stock_is_rejected` består. |
-| **4. API Gateway** — samlet indgangspunkt med autentificering, load balancing og rate-limiting | Kun gatewayen har en offentlig port i `docker-compose.yml`. `scripts/test-gateway.ps1` viser 3 ting: `POST /api/catalog-items` uden JWT giver `401`, 200 kald på 10 sekunder giver `429` efter de første 100, og begge de 2 `Catalog`-replikaer har modtaget kald. |
-| **5. Asynkron beskedbaseret kommunikation** mellem microservices (fx RabbitMQ, Azure Service Bus, Kafka) | RabbitMQ kører i `docker-compose.yml`, og `src/BuildingBlocks/Contracts` indeholder 4 hændelser: `OrderStartedIntegrationEvent`, `StockReservedIntegrationEvent`, `StockRejectedIntegrationEvent` og `OrderConfirmedIntegrationEvent`. `scripts/test-messaging.ps1` viser, at en ordre forbliver `Pending`, mens `Inventory` er stoppet, og bliver `Confirmed`, når den starter igen. |
-| **6. Datahåndtering og dataseparation** — egen database pr. microservice | 4 forbindelsesstrenge, én pr. service: `CatalogDb`, `BasketDb`, `OrderingDb` og `InventoryDb`. Ingen service har en `ProjectReference` til en anden service, kun til `Contracts`. Monolittens `CatalogContext` har ingen `DbSet` til katalog, kurv eller ordrer. |
-| **7. Fejlhåndtering og overvågning** (fx Circuit Breaker, logging, ELK eller Prometheus/Grafana) | Alle kald mellem services bruger en Polly circuit breaker. Når `Catalog` stoppes, viser forsiden en fejlbesked i stedet for HTTP 500, og Seq viser, at circuit breakeren er åben. Alle 4 services svarer på `/health`. Et `CorrelationId` for én checkout kan søges frem i Seq og findes i logs fra mindst 3 services. |
-| **8. CI/CD pipeline** — automatisk build, test og deployment, containerisering (fx Docker) | `.github/workflows/dotnetcore.yml` bygger, tester og laver 5 Docker-images (gateway + 4 services) og pusher dem til GHCR. Et deploy-job starter `docker-compose.deploy.yml` med de images og tjekker, at gatewayens `/health` svarer `200`. Én grøn kørsel på `main` er linket i `README.md`, og en fejlende test stopper pipelinen. |
-| **9. Dokumentation** af arkitekturbeslutninger, API'er og microservices (fx i README) | `README.md` har afsnittene "Arkitekturbeslutninger" (mindst 5 begrundede valg), "Servicegrænser", "API'er", "Sådan køres systemet" og "Lagerstyring", hvor sidstnævnte har et sekvensdiagram over `Inventory`. Alle 4 services viser deres API på `/swagger`. |
+| **1. Identificér og afgræns services** (min. 3 microservices, fx katalog, ordre, betaling; for mig: 1, bekræftet af Jakob 6/11-2026) | 1 service i `src/Inventory.Api` med sin egen database og `Dockerfile`. Afsnittet "Why Inventory" i [02-target-architecture.md](../architecture/02-target-architecture.md) begrunder valget med min matrix, og [00-business-story.md](../architecture/00-business-story.md) viser alle 5 bounded contexts og hvorfor de øvrige 4 bliver i monolitten. |
+| **2. Strangler Pattern implementering** — funktionalitet flyttes gradvist uden driftsafbrydelse | `src/Gateway` (YARP) ruter `/api/inventory/*` til `Inventory` og alt andet (catch-all) til monolitten. Med `StockCheck:Enabled=false` virker butikken som i dag, og med `true` går hver ordre gennem lagertjekket. |
+| **3. Lagerstyringssystem** implementeret som selvstændig microservice | `Inventory` kører i sin egen container med databasen `InventoryDb`. Efter en ordre på 2 stk. er beholdningen 2 lavere i `GET /api/inventory/{itemId}`. Unit tests i `Inventory.Tests` viser, at en reservation er alle linjer eller ingen, aldrig går under nul, og kun sker én gang pr. `OrderId`. |
+| **4. API Gateway** — samlet indgangspunkt med autentificering, load balancing og rate-limiting | `PUT /api/inventory/{itemId}/stock` uden gyldig JWT fra monolitten giver `401`. En test viser `429`, når rate limit overskrides. Der kører 2 `Inventory`-replikaer, og YARP fordeler kald mellem dem (round-robin). |
+| **5. Asynkron beskedbaseret kommunikation** (fx RabbitMQ, Azure Service Bus, Kafka) | RabbitMQ kører i `docker-compose.yml` med topic exchange `eshop.events` og routing keys `order.created`, `stock.reserved` og `stock.rejected`. Køen `inventory.order-created` er bundet til `order.created`, og beskeder bekræftes manuelt (manual ack). En ordre med nok lager bliver `Confirmed`, og en ordre på mere end beholdningen bliver `Cancelled`. |
+| **6. Datahåndtering og dataseparation** — egen database pr. microservice | `Inventory` har sin egen forbindelsesstreng til `InventoryDb` og ingen `ProjectReference` til monolittens projekter. Monolitten læser aldrig `InventoryDb` direkte, kun via gatewayen eller beskeder. |
+| **7. Fejlhåndtering og overvågning** (fx Circuit Breaker, logging, ELK eller Prometheus/Grafana) | Produktsiden kalder `GET /api/inventory/{id}` gennem gatewayen med en Polly circuit breaker. Når `Inventory` stoppes, viser siden "availability unknown" i stedet for HTTP 500. Serilog sender logs fra monolitten, gatewayen og `Inventory` til Seq. Alle tre svarer på `/health`. |
+| **8. CI/CD pipeline** — automatisk build, test og deployment, containerisering (fx Docker) | GitHub Actions bygger, tester, laver Docker-images og pusher dem til GHCR. Et deploy-job på runneren starter systemet og tjekker, at `/health` svarer `200`. Én grøn kørsel på `main` er linket i `README.md`, og en fejlende test stopper pipelinen. |
+| **9. Dokumentation** af arkitekturbeslutninger, API'er og microservices (fx i README) | `README.md` beskriver, hvordan systemet køres, API'erne og mine arkitekturbeslutninger. Der er et diagram over målarkitekturen med én service og et sekvensdiagram over ordre-sagaen. `Inventory` viser sit API på `/swagger`. |
+
+Tabellen indeholder kun mine **Must**-punkter fra [PLAN.md](../architecture/PLAN.md), så en planlagt nedskæring aldrig får et kriterium til at fejle.
+
+## Ekstra bevis, hvis tiden rækker (Should og Could)
+
+Disse punkter styrker kravene, men afleveringen består uden dem. Hvis de bliver skåret, beskriver jeg dem i rapporten som fremtidigt arbejde.
+
+| Styrker krav | Ekstra bevis |
+|---|---|
+| 3 | En samtidighedstest viser, at kun én af to reservationer af den sidste enhed lykkes (`rowversion`). |
+| 5 | Fejlende beskeder ender i en dead-letter exchange efter en retry-grænse. Tests viser, at en dublet ikke reserverer to gange, og at en poison message ender i dead-letter. `scripts/test-messaging.ps1` kører hele flowet. |
+| 6 | RabbitMQ- og databaseadgangskoder kommer fra miljøvariabler. |
+| 7 | Et `CorrelationId` (= `OrderId`) for én ordre kan søges frem i Seq i logs fra alle tre. |
+| 8 | En `WebApplicationFactory`-integrationstest af API'et. |
+
+## Sluttjek
+
+Fra en ren klon: `docker compose up` → afgiv en ordre i butikken → ordrens status skifter fra `Pending` til `Confirmed` under My Orders.
