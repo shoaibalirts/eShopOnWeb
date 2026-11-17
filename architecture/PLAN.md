@@ -15,6 +15,22 @@ Every day has three parts:
 
 **E h** is the expected number of hours for the whole day.
 
+## Re-plan on Tuesday 17/11
+
+On 17/11 none of the code existed yet, so I re-planned the last 5 days and cut every Should and Could item now. The cut items go into the report as future work. Two cheap items stay: `rowversion` on `StockItem` and credentials from environment variables.
+I use a hybrid split with Claude Code, recorded in `CLAUDE.md`. Claude writes the plumbing, and I write the reservation rules, the consumer's ack/nack logic, the message translation and the status update. I declare this in the report.
+
+| Day | Build (Must only) | Report |
+|---|---|---|
+| Tue 17 | `Inventory.Api`: `StockItem`, `InventoryDb`, seed, `GET /api/inventory/{itemId}`, Swagger, `/health`, `Dockerfile`; compose with RabbitMQ and Seq | 45 min |
+| Wed 18 | Reservation rules + unit tests; Inventory consumer (manual ack) and `stock.*` publisher | 45 min |
+| Thu 19 | Monolith: `Order.Status`, `order.created` publisher, `stock.*` consumer, My Orders, `StockCheck:Enabled` → **Checkpoint 1** | 45 min |
+| Fri 20 | Gateway routes, JWT, rate limiting + `429` test, 2 replicas; Polly circuit breaker; Serilog → Seq | 45 min |
+| Sat 21 | CI → GHCR + deploy job; README + saga diagram; every check in `faerdigt-produkt.md` → **Checkpoint 2**. Afternoon: assemble and finish the report | – |
+| Sun 22 | Proofread the report, then clean clone → `docker compose up` → order → `Confirmed`. **Submit** | – |
+
+**Friday fallback**, if it runs over: I first make an item smaller (for example a fixed fallback text for Polly). If I still have to cut, I cut in this order: 2 replicas, then the Polly product-page call, then the `429` test. I never cut the gateway routes, JWT or Seq. Any cut item is a Must check, so I update `faerdigt-produkt.md` and describe it in the report.
+
 ## Scope (Must / Should / Could)
 
 - **Must:** without it, a requirement fails or the final demo doesn't work. Only Must items are checked in [faerdigt-produkt.md](../docs/faerdigt-produkt.md).

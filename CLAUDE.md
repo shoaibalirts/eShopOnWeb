@@ -4,11 +4,15 @@ Semester project: I migrate eShopOnWeb towards microservices with the Strangler 
 
 ## Working rule
 
-**Shoaib writes the code.** Claude explains first and reviews after. Claude writes boilerplate only when I ask for it.
+Hybrid split, agreed on 17/11-2026 because of the deadline.
 
-- **Before I code:** explain the concept and the approach, using this project's code as the example.
-- **After I code:** review what I wrote: bugs, risks and how it matches the architecture.
-- **Never:** write service code, tests or features unless I explicitly ask for boilerplate.
+- **Claude writes the plumbing:** `.csproj` files, `Dockerfile`s, Docker Compose, DI and `Program.cs` wiring, and the CI YAML.
+- **I (Shoaib) write the parts the exam asks about:** the reservation rules, the consumer's ack/nack logic, the `OrderCreatedEvent` → `order.created` translation, and the order status update.
+- **Before I code:** Claude explains the concept, the pattern and the approach in 3–5 plain sentences, using this project's code as the example.
+- **After I code:** Claude reviews it for bugs, risks and fit with the architecture, shows me how to run and test it, and asks me 3 questions. I must answer them correctly before we continue.
+- **Commit** after each working step, with a short, normal message.
+- **Report:** Claude gives me bullet facts from my code (files, classes, decisions, trade-offs, test numbers). I write the paragraphs. Claude only fixes grammar and unclear sentences, tells me what changed, and flags claims the code doesn't support.
+- I declare AI use in the report.
 
 ## Scope
 
