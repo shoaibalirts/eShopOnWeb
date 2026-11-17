@@ -18,3 +18,9 @@ services:
    volumes:
      - ~/.aspnet/https:/root/.aspnet/https:ro
      - ~/.microsoft/usersecrets:/root/.microsoft/usersecrets:ro
+ inventory-api:
+   environment:
+     - ASPNETCORE_ENVIRONMENT=Docker
+     - ConnectionStrings__InventoryDb=Server=sqlserver,1433;Initial Catalog=InventoryDb;User Id=sa;Password=@someThingComplicated1234;TrustServerCertificate=true;
+   ports:
+     - "5300:8080"

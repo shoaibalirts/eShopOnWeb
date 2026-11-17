@@ -15,11 +15,42 @@ services:
       dockerfile: src/PublicApi/Dockerfile
     depends_on:
       - "sqlserver"
+  inventory-api:
+    image: ${DOCKER_REGISTRY-}inventory-api
+    build:
+      context: .
+      dockerfile: src/Inventory.Api/Dockerfile
+    depends_on:
+      sqlserver:
+        condition: service_healthy
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    # 1434 on the host, because 1433 is often taken by a local SQL Server.
     ports:
-      - "1433:1433"
+      - "1434:1433"
     environment:
       - SA_PASSWORD=@someThingComplicated1234
       - ACCEPT_EULA=Y
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+  rabbitmq:
+    image: rabbitmq:4.3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    # The default guest user may only connect from localhost, so the containers need their own user.
+    environment:
+      - RABBITMQ_DEFAULT_USER=eshop
+      - RABBITMQ_DEFAULT_PASS=eshop
+  seq:
+    image: datalust/seq:2026.1
+    ports:
+      - "5341:80"
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
 
