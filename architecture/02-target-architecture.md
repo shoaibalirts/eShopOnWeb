@@ -12,43 +12,44 @@ graph LR
     GW["YARP gateway<br/>JWT on restock, rate limiting,<br/>round-robin to Inventory replicas"]
 
     Mono["eShopOnWeb monolith<br/>(Web + PublicApi)<br/>catalog, basket, orders, sign-in<br/>feature flag StockCheck:Enabled"]
-    MonoDB[("Monolith databases<br/>CatalogDB + IdentityDB")]
 
-    Inv["Inventory service<br/>(2 replicas)"]
-    InvDB[("InventoryDb")]
+    Inv["Inventory service<br/>src/Inventory.Api<br/>(2 replicas)"]
+
+    subgraph SQL["SQL Server container (sqlserver)"]
+        MonoDB[("Monolith databases<br/>CatalogDb + Identity")]
+        InvDB[("InventoryDb")]
+    end
 
     subgraph MQ["RabbitMQ"]
         EX{{"eshop.events<br/>(topic exchange)"}}
         QInv["queue inventory.order-created<br/>bound to order.created"]
         QMono["monolith queue<br/>bound to stock.*"]
-        DLX{{"dead-letter exchange"}}
     end
 
     Seq["Seq<br/>central logs"]
 
-    Browser -- "HTTP" --> GW
-    GW -- "catch-all route" --> Mono
-    GW -- "/api/inventory/*" --> Inv
-    Mono -- "GET /api/inventory/{id}<br/>Polly circuit breaker" --> GW
+    Browser -- "HTTP (sync)" --> GW
+    GW -- "HTTP (sync)<br/>catch-all route" --> Mono
+    GW -- "HTTP (sync)<br/>/api/inventory/*" --> Inv
+    Mono -- "HTTP (sync)<br/>GET /api/inventory/{id}<br/>Polly circuit breaker" --> GW
 
     Mono --- MonoDB
     Inv --- InvDB
 
-    Mono -. "publish order.created" .-> EX
-    EX -. "order.created" .-> QInv
-    QInv -. "consume, manual ack" .-> Inv
-    Inv -. "publish stock.reserved /<br/>stock.rejected" .-> EX
-    EX -. "stock.reserved,<br/>stock.rejected" .-> QMono
-    QMono -. "consume → order status" .-> Mono
-    QInv -. "after retry limit<br/>or poison message" .-> DLX
+    Mono -. "event (async)<br/>order.created" .-> EX
+    EX -. "event (async)<br/>order.created" .-> QInv
+    QInv -. "event (async)<br/>consume, manual ack" .-> Inv
+    Inv -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> EX
+    EX -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> QMono
+    QMono -. "event (async)<br/>consume → order status" .-> Mono
 
-    Mono -- "logs" --> Seq
-    GW -- "logs" --> Seq
-    Inv -- "logs" --> Seq
+    Mono -- "HTTP (sync)<br/>logs" --> Seq
+    GW -- "HTTP (sync)<br/>logs" --> Seq
+    Inv -- "HTTP (sync)<br/>logs" --> Seq
 ```
 
-Solid arrows are HTTP calls, where the caller waits for an answer. Dotted arrows are messages, where the sender does not wait.
-Plain lines join a service to the database only it may use.
+Solid arrows are HTTP calls (sync), where the caller waits for an answer. Dotted arrows are events (async), where the sender does not wait.
+Plain lines join a service to the database only it may use. Both databases run on the same SQL Server container, but each service has its own database and connection string.
 
 ## The parts
 
@@ -57,7 +58,7 @@ Plain lines join a service to the database only it may use.
 | **YARP gateway** (`src/Gateway`) | The single entry point. `/api/inventory/*` goes to Inventory, and everything else goes to the monolith through a catch-all route. It validates the monolith's JWT on the restock endpoint, applies rate limiting, and spreads calls over the 2 Inventory replicas (round-robin). |
 | **Monolith** | Still serves all pages, the catalog, the basket, orders and sign-in. It publishes `order.created`, listens for `stock.*`, and asks Inventory for availability on the product page. |
 | **Inventory** (`src/Inventory.Api`) | Owns stock levels and reservations in its own `InventoryDb`. It reserves stock when an order is created and answers with `stock.reserved` or `stock.rejected`. |
-| **RabbitMQ** | The topic exchange `eshop.events` routes messages by routing key. A dead-letter exchange receives messages that fail too many times. |
+| **RabbitMQ** | The topic exchange `eshop.events` routes messages by routing key to the queues bound to it. |
 | **Seq** | Central logs from the monolith, the gateway and Inventory, searchable by `CorrelationId`. |
 
 ## Messages
@@ -79,14 +80,53 @@ All messages go through the topic exchange `eshop.events`. The client library is
 
 My Orders shows the status.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Shopper
+    participant M as Monolith (Web)
+    participant MDB as CatalogDb
+    participant EX as RabbitMQ<br/>eshop.events
+    participant I as Inventory
+    participant IDB as InventoryDb
+
+    U->>M: Place order (checkout)
+    M->>MDB: Save order, Status = Pending
+    Note over M: StockCheck:Enabled = true.<br/>IntegrationEventPublisher translates<br/>OrderCreatedEvent → order.created
+    M--)EX: order.created { OrderId, lines }
+    M-->>U: "Thanks for your order" (status Pending)
+    EX--)I: order.created via queue inventory.order-created
+    I->>IDB: Already reserved for this OrderId?
+    alt First time for this OrderId
+        I->>IDB: Reserve all lines or none, never below zero
+        alt Enough stock for every line
+            I--)EX: stock.reserved { CorrelationId = OrderId }
+            EX--)M: stock.reserved via monolith queue
+            M->>MDB: Status = Confirmed
+        else Not enough stock for a line
+            I--)EX: stock.rejected { CorrelationId = OrderId }
+            EX--)M: stock.rejected via monolith queue
+            M->>MDB: Status = Cancelled
+        end
+    else Duplicate message
+        Note over I: Idempotent receiver: reserve nothing again
+    end
+    I->>EX: ack (only after the work is done)
+    U->>M: Open My Orders
+    M-->>U: Shows Confirmed or Cancelled
+```
+
+Solid arrows with a filled head are calls that wait for an answer. Arrows with an open head (`--)`) are events, where the sender does not wait.
+
 **Rules that keep it safe:**
 
 | Rule | How |
 |---|---|
 | Duplicate messages | Inventory allows one reservation per `OrderId`, so a message that arrives twice reserves only once (idempotent receiver). |
-| Two buyers, last unit | `rowversion` concurrency control, so only one of two reservations for the last unit succeeds. |
-| A message keeps failing | It is retried up to a limit and then moved to the dead-letter exchange, so it can't block the queue. |
+| Two buyers, last unit | `rowversion` on `StockItem`, so only one of two reservations for the last unit succeeds. |
 | Two replicas | Both read from the same queue (Competing Consumers), so each message is handled by one replica. |
+
+On 17/11 I cut the dead-letter exchange and the concurrency test to meet the deadline (see [PLAN.md](PLAN.md)). They are future work in my report.
 
 ## Inventory API
 
