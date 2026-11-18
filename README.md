@@ -45,7 +45,7 @@ The gateway (port 5000) is the only way into the shop and Inventory. The monolit
 To check that everything works, run the smoke test:
 
 ```powershell
-.scriptssmoke-test.ps1         # Windows PowerShell
+.\scripts\smoke-test.ps1          # Windows PowerShell
 ```
 
 ```bash
