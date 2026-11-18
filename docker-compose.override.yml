@@ -22,5 +22,8 @@ services:
    environment:
      - ASPNETCORE_ENVIRONMENT=Docker
      - ConnectionStrings__InventoryDb=Server=sqlserver,1433;Initial Catalog=InventoryDb;User Id=sa;Password=@someThingComplicated1234;TrustServerCertificate=true;
+     - RabbitMq__HostName=rabbitmq
+     - RabbitMq__UserName=eshop
+     - RabbitMq__Password=eshop
    ports:
      - "5300:8080"

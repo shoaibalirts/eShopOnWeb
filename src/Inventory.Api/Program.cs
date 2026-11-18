@@ -1,5 +1,6 @@
 using Inventory.Api;
 using Inventory.Api.Data;
+using Inventory.Api.Messaging;
 using Inventory.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,6 +10,9 @@ builder.Services.AddDbContext<InventoryDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("InventoryDb")));
 
 builder.Services.AddScoped<StockReservationService>();
+
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.SectionName));
+builder.Services.AddHostedService<OrderCreatedConsumer>();
 
 builder.Services.AddHealthChecks().AddDbContextCheck<InventoryDbContext>();
 builder.Services.AddOpenApi();

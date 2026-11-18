@@ -23,6 +23,8 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     # 1434 on the host, because 1433 is often taken by a local SQL Server.
@@ -46,6 +48,12 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=eshop
       - RABBITMQ_DEFAULT_PASS=eshop
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
   seq:
     image: datalust/seq:2026.1
     ports:
