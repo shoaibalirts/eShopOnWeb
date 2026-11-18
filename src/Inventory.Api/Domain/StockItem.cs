@@ -18,4 +18,18 @@ public class StockItem
 
     // Concurrency token: SQL Server changes it on every update, so two buyers can't both take the last unit.
     public byte[] RowVersion { get; private set; }
+
+    public bool CanReserve(int quantity) => quantity > 0 && quantity <= Quantity;
+
+    // The only way stock goes down, and it never goes below zero.
+    public void Reserve(int quantity)
+    {
+        if (!CanReserve(quantity))
+        {
+            throw new InvalidOperationException(
+                $"Cannot reserve {quantity} of item {CatalogItemId}: only {Quantity} in stock.");
+        }
+
+        Quantity -= quantity;
+    }
 }

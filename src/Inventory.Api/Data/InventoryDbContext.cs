@@ -6,6 +6,7 @@ namespace Inventory.Api.Data;
 public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : DbContext(options)
 {
     public DbSet<StockItem> StockItems => Set<StockItem>();
+    public DbSet<Reservation> Reservations => Set<Reservation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -19,6 +20,14 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
             // Item 2 (the mug) has only 3, so I can demo a rejected order.
             b.HasData(Enumerable.Range(1, 12)
                 .Select(id => new { CatalogItemId = id, Quantity = id == 2 ? 3 : 25 }));
+        });
+
+        modelBuilder.Entity<Reservation>(b =>
+        {
+            b.HasKey(r => r.OrderId);
+            b.Property(r => r.OrderId).ValueGeneratedNever();
+            b.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
+            b.Property(r => r.Reason).HasMaxLength(200);
         });
     }
 }

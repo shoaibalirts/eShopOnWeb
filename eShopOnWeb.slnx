@@ -22,6 +22,7 @@
     <File Path="CodeCoverage.runsettings" />
     <Project Path="tests/FunctionalTests/FunctionalTests.csproj" />
     <Project Path="tests/IntegrationTests/IntegrationTests.csproj" />
+    <Project Path="tests/Inventory.Tests/Inventory.Tests.csproj" />
     <Project Path="tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj" />
     <Project Path="tests/UnitTests/UnitTests.csproj" />
       <Project Path="tests/EndToEndTests/EndToEndTests.csproj" />

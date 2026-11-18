@@ -1,11 +1,14 @@
 using Inventory.Api;
 using Inventory.Api.Data;
+using Inventory.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<InventoryDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("InventoryDb")));
+
+builder.Services.AddScoped<StockReservationService>();
 
 builder.Services.AddHealthChecks().AddDbContextCheck<InventoryDbContext>();
 builder.Services.AddOpenApi();
