@@ -45,7 +45,7 @@ The gateway (port 5000) is the only way into the shop and Inventory. The monolit
 To check that everything works, run the smoke test:
 
 ```powershell
-.scriptssmoke-test.ps1          # Windows PowerShell
+.scriptssmoke-test.ps1         # Windows PowerShell
 ```
 
 ```bash
@@ -228,7 +228,7 @@ dotnet test tests/IntegrationTests/IntegrationTests.csproj
 | `src/Web/Messaging` | The monolith's side of the messaging: publisher, consumer, topology |
 | `src/Web/Services/InventoryAvailabilityService.cs` | The stock call with Polly |
 | `tests/Inventory.Tests`, `tests/Gateway.Tests` | My new test projects |
-| `scripts/smoke-test.sh` | The end-to-end check used by CI |
+| `scripts/smoke-test.sh`, `scripts/smoke-test.ps1` | The end-to-end check (bash for CI, PowerShell for Windows) |
 | `architecture/` | Business story, monolith flows, target architecture, plan, diagrams |
 | `docs/report/` | Report drafts |
 
