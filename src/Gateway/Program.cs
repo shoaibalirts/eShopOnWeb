@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
@@ -34,6 +35,25 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("admin", policy => policy.RequireAuthenticatedUser().RequireRole("Administrators"));
 });
 
+// Fixed window per client IP. A client that sends too many requests gets 429 before Inventory is called.
+var permitLimit = builder.Configuration.GetValue("RateLimiting:PermitLimit", 100);
+var window = TimeSpan.FromSeconds(builder.Configuration.GetValue("RateLimiting:WindowSeconds", 10));
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = ((int)window.TotalSeconds).ToString();
+        return ValueTask.CompletedTask;
+    };
+
+    // Used by the inventory routes in appsettings.json.
+    options.AddPolicy("inventory", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = permitLimit, Window = window, QueueLimit = 0 }));
+});
+
 // Routes and destinations come from the "ReverseProxy" section in appsettings.
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
@@ -42,6 +62,8 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// Rate limiting first, so a flood of requests is stopped before any token is checked.
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
