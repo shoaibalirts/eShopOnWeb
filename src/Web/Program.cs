@@ -8,6 +8,7 @@ using Microsoft.eShopWeb.Web;
 using Microsoft.eShopWeb.Web.Areas.Identity.Helpers;
 using Microsoft.eShopWeb.Web.Configuration;
 using Microsoft.eShopWeb.Web.Extensions;
+using Microsoft.eShopWeb.Web.Messaging;
 using NimblePros.Metronome;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -75,6 +76,10 @@ builder.Services.AddRazorPages(options =>
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddCustomHealthChecks();
+
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.SectionName));
+builder.Services.Configure<StockCheckOptions>(builder.Configuration.GetSection(StockCheckOptions.SectionName));
+builder.Services.AddSingleton<RabbitMqPublisher>();
 
 builder.Services.Configure<ServiceConfig>(config =>
 {
