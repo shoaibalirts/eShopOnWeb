@@ -6,7 +6,7 @@ This is my semester project. I take the monolithic [eShopOnWeb](https://github.c
 
 I work alone, so my instructor confirmed on 6/11-2026 that I build **one** microservice: **Inventory**. It owns the stock levels and checks every order. Catalog, basket, ordering, sign-in and all pages stay in the monolith for now.
 
-**Green CI/CD run on `main`:** [CHECK: link to the run after the first push]
+**Green CI/CD run on `main`:** [run 44323361311](https://github.com/shoaibalirts/eShopOnWeb/actions/runs/44323361311) (commit `8dfc3bc`, 18/11-2026: 104 tests, 3 images pushed to GHCR, deploy and smoke test passed)
 
 ## Contents
 

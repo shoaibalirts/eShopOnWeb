@@ -54,7 +54,8 @@ The deploy check needed a few changes, and they also improved the system:
 - `actionlint` (in Docker) found no errors in the workflow.
 - I rehearsed the deploy job locally: `docker compose down -v`, `docker compose up -d --no-build gateway`, then the smoke test. It passed in about 11 seconds.
 - I cloned the repository into an empty folder and ran `docker compose up -d --build` and the smoke test there. This proves that nothing depends on files that only exist on my machine.
-- **[CHECK: after the first push]** The first run on GitHub, and a branch with a deliberately failing test, to show that `images` and `deploy` don't run.
+- The first run on GitHub ([run 44323361311](), commit `8dfc3bc`) was green in all five jobs: 104 tests passed, the three images were pushed to GHCR, and the smoke test on the runner confirmed one order and cancelled the other.
+- **[CHECK]** A branch with a deliberately failing test, to show that `images` and `deploy` don't run.
 
 ## Trade-offs and future work
 
