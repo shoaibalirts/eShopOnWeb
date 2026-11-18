@@ -14,7 +14,13 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
         {
             b.HasKey(s => s.CatalogItemId);
             b.Property(s => s.CatalogItemId).ValueGeneratedNever();
-            b.Property(s => s.RowVersion).IsRowVersion();
+            var rowVersion = b.Property(s => s.RowVersion).IsRowVersion();
+            if (!Database.IsRelational())
+            {
+                // SQL Server fills a rowversion itself. The in-memory database of the API tests can't,
+                // so there the value may be empty. The real concurrency check only exists on SQL Server.
+                rowVersion.IsRequired(false);
+            }
 
             // Starting stock for the 12 products the monolith seeds in CatalogContextSeed.
             // Item 2 (the mug) has only 3, so I can demo a rejected order.

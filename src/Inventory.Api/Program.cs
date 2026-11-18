@@ -38,7 +38,16 @@ var app = builder.Build();
 // Create or update InventoryDb on startup, so a clean `docker compose up` works without manual steps.
 using (var scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider.GetRequiredService<InventoryDbContext>().Database.MigrateAsync();
+    var database = scope.ServiceProvider.GetRequiredService<InventoryDbContext>().Database;
+    if (database.IsRelational())
+    {
+        await database.MigrateAsync();
+    }
+    else
+    {
+        // The API tests use an in-memory database, which has no migrations. This adds the seed data.
+        await database.EnsureCreatedAsync();
+    }
 }
 
 // One log line per HTTP request, with method, path, status code and time.
