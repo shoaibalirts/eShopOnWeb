@@ -22,6 +22,9 @@ public class GatewayFactory : WebApplicationFactory<Program>
         builder.UseSetting("RateLimiting:PermitLimit", PermitLimit.ToString());
         builder.UseSetting("RateLimiting:WindowSeconds", "60");
         builder.UseSetting("ReverseProxy:Clusters:inventory:Destinations:inventory1:Address", "http://127.0.0.1:1/");
+        // The fake destination is never healthy. Without this, a health probe could mark it down and
+        // turn the expected 502 into 503, depending on timing.
+        builder.UseSetting("ReverseProxy:Clusters:inventory:HealthCheck:Active:Enabled", "false");
     }
 
     // Builds a token the same way the monolith's IdentityTokenClaimService does.
