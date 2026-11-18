@@ -22,6 +22,25 @@ public class Order : BaseEntity, IAggregateRoot
     public string BuyerId { get; private set; }
     public DateTimeOffset OrderDate { get; private set; } = DateTimeOffset.Now;
     public Address ShipToAddress { get; private set; }
+    public OrderStatus Status { get; private set; } = OrderStatus.Pending;
+
+    // Inventory answers with stock.reserved or stock.rejected. Only a Pending order can change,
+    // so a duplicate or late answer changes nothing.
+    public void Confirm()
+    {
+        if (Status == OrderStatus.Pending)
+        {
+            Status = OrderStatus.Confirmed;
+        }
+    }
+
+    public void Cancel()
+    {
+        if (Status == OrderStatus.Pending)
+        {
+            Status = OrderStatus.Cancelled;
+        }
+    }
 
     // DDD Patterns comment
     // Using a private collection field, better for DDD Aggregate's encapsulation
