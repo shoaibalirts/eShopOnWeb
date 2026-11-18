@@ -4,15 +4,15 @@ Semester project: I migrate eShopOnWeb towards microservices with the Strangler 
 
 ## Working rule
 
-Hybrid split, agreed on 17/11-2026 because of the deadline.
+Changed on 18/11-2026: Claude builds the rest and drafts the report under my direction. I must be able to defend everything at the oral exam.
 
-- **Claude writes the plumbing:** `.csproj` files, `Dockerfile`s, Docker Compose, DI and `Program.cs` wiring, and the CI YAML.
-- **I (Shoaib) write the parts the exam asks about:** the reservation rules, the consumer's ack/nack logic, the `OrderCreatedEvent` → `order.created` translation, and the order status update.
-- **Before I code:** Claude explains the concept, the pattern and the approach in 3–5 plain sentences, using this project's code as the example.
-- **After I code:** Claude reviews it for bugs, risks and fit with the architecture, shows me how to run and test it, and asks me 3 questions. I must answer them correctly before we continue.
-- **Commit** after each working step, with a short, normal message.
-- **Report:** Claude gives me bullet facts from my code (files, classes, decisions, trade-offs, test numbers). I write the paragraphs. Claude only fixes grammar and unclear sentences, tells me what changed, and flags claims the code doesn't support.
-- I declare AI use in the report.
+- **Claude builds** the code day by day, following `architecture/PLAN.md` (Wed–Sat).
+- **After each working step:** commit with a short, normal message, tell me exactly what to run and what I should see, then **wait for my confirmation** before the next step.
+- **Report:** Claude drafts each section in `docs/report/` as the related code is finished: first person, simple student English, specific to my files and classes, marked **DRAFT**. I review and edit.
+- **Study notes:** each day Claude writes `docs/study/day-N.md`: what was built, the patterns, the key code lines with plain explanations, and 5 exam questions with ideal answers, grouped by the 6 exam topics.
+- **Each evening:** Claude quizzes me with that day's 5 questions and grades my answers.
+- **AI statement:** `docs/report/00-ai-statement.md` says honestly that Claude Code wrote the code and drafted the report under my direction, and that I tested it, reviewed and edited the report, and can explain all of it.
+- **Never cut a requirement** without asking me first.
 
 ## Scope
 
