@@ -1,4 +1,4 @@
-> **DRAFT.** AI-drafted from my code on 18/11-2026. I review and edit it before I submit. The monolith side is added on Thursday 19/11.
+> **DRAFT.** AI-drafted from my code on 18/11-2026. I review and edit it before I submit.
 
 # Message channels and routing
 
@@ -14,7 +14,7 @@ I use RabbitMQ with the library RabbitMQ.Client 7. I chose it over MassTransit s
 |---|---|---|
 | `eshop.events` | Topic exchange, durable | Receives every event and routes it by routing key |
 | `inventory.order-created` | Queue, durable, bound to `order.created` | Inventory's inbox |
-| Monolith queue, bound to `stock.*` | Queue, durable | The monolith's inbox for the answers (Thursday) |
+| `monolith.stock-results` | Queue, durable, bound to `stock.*` | The monolith's inbox for the answers |
 
 The exchange is a Publish-Subscribe Channel: the sender doesn't know who listens. Each queue is a Point-to-Point Channel: one message is handled by one consumer. When I run 2 Inventory replicas, they read from the same queue and share the work (Competing Consumers). `BasicQosAsync` with `prefetchCount: 10` stops one replica from taking all the messages.
 
@@ -32,7 +32,7 @@ The records are `OrderCreatedMessage`, `StockReservedMessage` and `StockRejected
 
 ## Reliable handling in Inventory
 
-The consumer is `OrderCreatedConsumer` (`src/Inventory.Api/Messaging/`), a `BackgroundService`. At startup it declares the exchange, the queue and the binding. Declaring is safe to repeat: RabbitMQ only creates what is missing. Start order still matters. An exchange doesn't store messages, so if the monolith published `order.created` before Inventory had created its queue, the message would be dropped. **[Thursday: describe how I handle this in the monolith.]**
+The consumer is `OrderCreatedConsumer` (`src/Inventory.Api/Messaging/`), a `BackgroundService`. At startup it declares the exchange, the queue and the binding. Declaring is safe to repeat: RabbitMQ only creates what is missing. Start order still matters. An exchange doesn't store messages, so if the monolith published `order.created` before Inventory had created its queue, the message would be dropped. I solved this by letting the monolith declare the whole topology too. `RabbitMqTopology.DeclareAsync` in `src/Web/Messaging/` declares the exchange and both queues with their bindings before the first publish. Now it doesn't matter which service starts first.
 
 It uses manual ack (`autoAck: false`). For each message it does three things in this order:
 

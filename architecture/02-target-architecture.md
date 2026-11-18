@@ -23,7 +23,7 @@ graph LR
     subgraph MQ["RabbitMQ"]
         EX{{"eshop.events<br/>(topic exchange)"}}
         QInv["queue inventory.order-created<br/>bound to order.created"]
-        QMono["monolith queue<br/>bound to stock.*"]
+        QMono["queue monolith.stock-results<br/>bound to stock.*"]
     end
 
     Seq["Seq<br/>central logs"]
@@ -68,8 +68,8 @@ All messages go through the topic exchange `eshop.events`. The client library is
 | Routing key | Published by | Consumed by | Content |
 |---|---|---|---|
 | `order.created` | Monolith (`IntegrationEventPublisher` translates the in-process `OrderCreatedEvent`) | Inventory, through the queue `inventory.order-created` | `OrderId` and the order lines with quantities, nothing else |
-| `stock.reserved` | Inventory | Monolith | `CorrelationId = OrderId`. The order becomes `Confirmed`. |
-| `stock.rejected` | Inventory | Monolith | `CorrelationId = OrderId`. The order becomes `Cancelled`. |
+| `stock.reserved` | Inventory | Monolith, through the queue `monolith.stock-results` | `CorrelationId = OrderId`. The order becomes `Confirmed`. |
+| `stock.rejected` | Inventory | Monolith, through the queue `monolith.stock-results` | `CorrelationId = OrderId`. The order becomes `Cancelled`. |
 
 **Checkout in short:**
 
@@ -101,11 +101,11 @@ sequenceDiagram
         I->>IDB: Reserve all lines or none, never below zero
         alt Enough stock for every line
             I--)EX: stock.reserved { CorrelationId = OrderId }
-            EX--)M: stock.reserved via monolith queue
+            EX--)M: stock.reserved via monolith.stock-results
             M->>MDB: Status = Confirmed
         else Not enough stock for a line
             I--)EX: stock.rejected { CorrelationId = OrderId }
-            EX--)M: stock.rejected via monolith queue
+            EX--)M: stock.rejected via monolith.stock-results
             M->>MDB: Status = Cancelled
         end
     else Duplicate message
