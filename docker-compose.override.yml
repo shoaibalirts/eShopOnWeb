@@ -4,6 +4,12 @@ services:
    environment:
      - ASPNETCORE_ENVIRONMENT=Docker
      - ASPNETCORE_URLS=http://+:8080
+     - ConnectionStrings__seq=http://seq
+     # Rollback switch: STOCK_CHECK_ENABLED=false docker compose up -d eshopwebmvc
+     - StockCheck__Enabled=${STOCK_CHECK_ENABLED:-true}
+     - RabbitMq__HostName=rabbitmq
+     - RabbitMq__UserName=eshop
+     - RabbitMq__Password=eshop
    ports:
      - "5106:8080"
    volumes:

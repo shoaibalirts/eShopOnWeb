@@ -6,8 +6,11 @@ services:
     build:
       context: .
       dockerfile: src/Web/Dockerfile
+    # The web shop seeds and migrates CatalogDb at startup, so it waits for SQL Server.
+    # It doesn't wait for RabbitMQ: StockResultConsumer retries, so the shop runs without it.
     depends_on:
-      - "sqlserver"
+      sqlserver:
+        condition: service_healthy
   eshoppublicapi:
     image: ${DOCKER_REGISTRY-}eshoppublicapi
     build:

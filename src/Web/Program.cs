@@ -80,6 +80,10 @@ builder.Services.AddCustomHealthChecks();
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StockCheckOptions>(builder.Configuration.GetSection(StockCheckOptions.SectionName));
 builder.Services.AddSingleton<RabbitMqPublisher>();
+if (builder.Configuration.GetValue<bool>("StockCheck:Enabled"))
+{
+    builder.Services.AddHostedService<StockResultConsumer>();
+}
 
 builder.Services.Configure<ServiceConfig>(config =>
 {
