@@ -34,5 +34,7 @@ services:
  gateway:
    environment:
      - ASPNETCORE_ENVIRONMENT=Docker
+     # Must match AuthorizationConstants.JWT_SECRET_KEY in the monolith. Override it with JWT_SIGNING_KEY.
+     - Jwt__SigningKey=${JWT_SIGNING_KEY:-SecretKeyOfDoomThatMustBeAMinimumNumberOfBytes}
    ports:
      - "5000:8080"

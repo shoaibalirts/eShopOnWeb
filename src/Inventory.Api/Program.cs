@@ -38,6 +38,40 @@ app.MapGet("/api/inventory/{itemId:int}", async (int itemId, InventoryDbContext 
     .Produces<StockLevelResponse>()
     .Produces(StatusCodes.Status404NotFound);
 
+// Admin restock. The gateway checks the JWT and the Administrators role before a request gets here,
+// and Inventory has no public port, so it can only be reached through the gateway.
+app.MapPut("/api/inventory/{itemId:int}/stock", async (int itemId, SetStockRequest request, InventoryDbContext db) =>
+    {
+        if (request.Quantity < 0)
+        {
+            return Results.BadRequest("Quantity can't be negative.");
+        }
+
+        var item = await db.StockItems.FindAsync(itemId);
+        if (item is null)
+        {
+            return Results.NotFound();
+        }
+
+        item.SetQuantity(request.Quantity);
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // An order reserved this item at the same moment (RowVersion changed). The admin should count again.
+            return Results.Conflict("The stock changed while you were updating it. Try again.");
+        }
+
+        return Results.Ok(new StockLevelResponse(item.CatalogItemId, item.Quantity));
+    })
+    .WithName("SetStockLevel")
+    .Produces<StockLevelResponse>()
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .Produces(StatusCodes.Status409Conflict);
+
 app.Run();
 
 public partial class Program { }

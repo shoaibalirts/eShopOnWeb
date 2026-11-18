@@ -34,6 +34,25 @@ public class StockItemReserve
         Assert.Equal(3, item.Quantity);
     }
 
+    [Fact]
+    public void SetQuantityReplacesTheCount()
+    {
+        var item = new StockItem(catalogItemId: 1, quantity: 3);
+
+        item.SetQuantity(40);
+
+        Assert.Equal(40, item.Quantity);
+    }
+
+    [Fact]
+    public void SetQuantityRefusesNegativeCount()
+    {
+        var item = new StockItem(catalogItemId: 1, quantity: 3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => item.SetQuantity(-1));
+        Assert.Equal(3, item.Quantity);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

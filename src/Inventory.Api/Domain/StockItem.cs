@@ -21,6 +21,17 @@ public class StockItem
 
     public bool CanReserve(int quantity) => quantity > 0 && quantity <= Quantity;
 
+    // Admin restock: set the quantity after counting the shelf. A count can't be negative.
+    public void SetQuantity(int quantity)
+    {
+        if (quantity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Stock can't be negative.");
+        }
+
+        Quantity = quantity;
+    }
+
     // The only way stock goes down, and it never goes below zero.
     public void Reserve(int quantity)
     {
