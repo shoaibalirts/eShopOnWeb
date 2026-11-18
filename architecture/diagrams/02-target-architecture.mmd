@@ -1,0 +1,45 @@
+graph LR
+    Browser["Browser<br/>(shop pages, admin)"]
+
+    GW["YARP gateway :5000<br/>JWT on restock, rate limiting,<br/>round-robin + health checks<br/>to the Inventory replicas"]
+
+    Mono["eShopOnWeb monolith<br/>(Web + PublicApi)<br/>catalog, basket, orders, sign-in<br/>feature flag StockCheck:Enabled"]
+
+    Inv["Inventory service<br/>src/Inventory.Api<br/>2 replicas: inventory-1, inventory-2"]
+
+    subgraph SQL["SQL Server container (sqlserver)"]
+        MonoDB[("Monolith databases<br/>CatalogDb + Identity")]
+        InvDB[("InventoryDb")]
+    end
+
+    subgraph MQ["RabbitMQ"]
+        EX{{"eshop.events<br/>(topic exchange)"}}
+        QInv["queue inventory.order-created<br/>bound to order.created"]
+        QMono["queue monolith.stock-results<br/>bound to stock.*"]
+        DLX{{"eshop.dlx<br/>(dead-letter exchange)"}}
+        DLQ["queue inventory.order-created.dead"]
+    end
+
+    Seq["Seq<br/>central logs"]
+
+    Browser -- "HTTP (sync)" --> GW
+    Browser -- "HTTP (sync)<br/>admin pages call PublicApi :5200<br/>(not behind the gateway yet)" --> Mono
+    GW -- "HTTP (sync)<br/>catch-all route" --> Mono
+    GW -- "HTTP (sync)<br/>/api/inventory/*" --> Inv
+    Mono -- "HTTP (sync)<br/>GET /api/inventory/{id}<br/>Polly circuit breaker" --> GW
+
+    Mono --- MonoDB
+    Inv --- InvDB
+
+    Mono -. "event (async)<br/>order.created" .-> EX
+    EX -. "event (async)<br/>order.created" .-> QInv
+    QInv -. "event (async)<br/>consume, manual ack" .-> Inv
+    Inv -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> EX
+    EX -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> QMono
+    QMono -. "event (async)<br/>consume → order status" .-> Mono
+    QInv -. "rejected, or<br/>failed after 3 retries" .-> DLX
+    DLX -. "dead letter" .-> DLQ
+
+    Mono -- "HTTP (sync)<br/>logs" --> Seq
+    GW -- "HTTP (sync)<br/>logs" --> Seq
+    Inv -- "HTTP (sync)<br/>logs" --> Seq

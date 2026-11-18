@@ -9,11 +9,11 @@ This document is the single source of truth for the service, the routes and the 
 graph LR
     Browser["Browser<br/>(shop pages, admin)"]
 
-    GW["YARP gateway<br/>JWT on restock, rate limiting,<br/>round-robin to Inventory replicas"]
+    GW["YARP gateway :5000<br/>JWT on restock, rate limiting,<br/>round-robin + health checks<br/>to the Inventory replicas"]
 
     Mono["eShopOnWeb monolith<br/>(Web + PublicApi)<br/>catalog, basket, orders, sign-in<br/>feature flag StockCheck:Enabled"]
 
-    Inv["Inventory service<br/>src/Inventory.Api<br/>(2 replicas)"]
+    Inv["Inventory service<br/>src/Inventory.Api<br/>2 replicas: inventory-1, inventory-2"]
 
     subgraph SQL["SQL Server container (sqlserver)"]
         MonoDB[("Monolith databases<br/>CatalogDb + Identity")]
@@ -24,12 +24,14 @@ graph LR
         EX{{"eshop.events<br/>(topic exchange)"}}
         QInv["queue inventory.order-created<br/>bound to order.created"]
         QMono["queue monolith.stock-results<br/>bound to stock.*"]
-        DLQ["dead-letter queue<br/>inventory.order-created.dead<br/>(via eshop.dlx, after 3 retries)"]
+        DLX{{"eshop.dlx<br/>(dead-letter exchange)"}}
+        DLQ["queue inventory.order-created.dead"]
     end
 
     Seq["Seq<br/>central logs"]
 
     Browser -- "HTTP (sync)" --> GW
+    Browser -- "HTTP (sync)<br/>admin pages call PublicApi :5200<br/>(not behind the gateway yet)" --> Mono
     GW -- "HTTP (sync)<br/>catch-all route" --> Mono
     GW -- "HTTP (sync)<br/>/api/inventory/*" --> Inv
     Mono -- "HTTP (sync)<br/>GET /api/inventory/{id}<br/>Polly circuit breaker" --> GW
@@ -43,7 +45,8 @@ graph LR
     Inv -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> EX
     EX -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> QMono
     QMono -. "event (async)<br/>consume → order status" .-> Mono
-    QInv -. "rejected or<br/>3 retries failed" .-> DLQ
+    QInv -. "rejected, or<br/>failed after 3 retries" .-> DLX
+    DLX -. "dead letter" .-> DLQ
 
     Mono -- "HTTP (sync)<br/>logs" --> Seq
     GW -- "HTTP (sync)<br/>logs" --> Seq
@@ -86,36 +89,34 @@ My Orders shows the status.
 sequenceDiagram
     autonumber
     actor U as Shopper
+    participant G as Gateway
     participant M as Monolith (Web)
-    participant MDB as CatalogDb
-    participant EX as RabbitMQ<br/>eshop.events
+    participant MQ as RabbitMQ<br/>eshop.events
     participant I as Inventory
     participant IDB as InventoryDb
 
-    U->>M: Place order (checkout)
-    M->>MDB: Save order, Status = Pending
-    Note over M: StockCheck:Enabled = true.<br/>IntegrationEventPublisher translates<br/>OrderCreatedEvent → order.created
-    M--)EX: order.created { OrderId, lines }
-    M-->>U: "Thanks for your order" (status Pending)
-    EX--)I: order.created via queue inventory.order-created
-    I->>IDB: Already reserved for this OrderId?
-    alt First time for this OrderId
-        I->>IDB: Reserve all lines or none, never below zero
-        alt Enough stock for every line
-            I--)EX: stock.reserved { CorrelationId = OrderId }
-            EX--)M: stock.reserved via monolith.stock-results
-            M->>MDB: Status = Confirmed
-        else Not enough stock for a line
-            I--)EX: stock.rejected { CorrelationId = OrderId }
-            EX--)M: stock.rejected via monolith.stock-results
-            M->>MDB: Status = Cancelled
-        end
-    else Duplicate message
-        Note over I: Idempotent receiver: reserve nothing again
+    U->>G: Pay Now
+    G->>M: POST /Basket/Checkout
+    M->>M: Save order, Status = Pending
+    M--)MQ: order.created { orderId, lines }
+    M-->>U: "Thanks for your order"
+    MQ--)I: order.created (queue inventory.order-created)
+    I->>IDB: Already handled this OrderId?
+    alt New order and enough stock for every line
+        I->>IDB: Reserve all lines (one SaveChanges)
+        I--)MQ: stock.reserved (CorrelationId = OrderId)
+        MQ--)M: stock.reserved (queue monolith.stock-results)
+        M->>M: Status = Confirmed
+    else Not enough stock for a line
+        I->>IDB: Save the rejection, reserve nothing
+        I--)MQ: stock.rejected (CorrelationId = OrderId)
+        MQ--)M: stock.rejected
+        M->>M: Status = Cancelled
     end
-    I->>EX: ack (only after the work is done)
-    U->>M: Open My Orders
-    M-->>U: Shows Confirmed or Cancelled
+    I->>MQ: ack order.created (after the answer is safe)
+    U->>G: My Orders
+    G->>M: GET /order/my-orders
+    M-->>U: Confirmed / Cancelled
 ```
 
 Solid arrows with a filled head are calls that wait for an answer. Arrows with an open head (`--)`) are events, where the sender does not wait.

@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    actor U as Shopper
+    participant G as Gateway
+    participant M as Monolith (Web)
+    participant MQ as RabbitMQ<br/>eshop.events
+    participant I as Inventory
+    participant IDB as InventoryDb
+
+    U->>G: Pay Now
+    G->>M: POST /Basket/Checkout
+    M->>M: Save order, Status = Pending
+    M--)MQ: order.created { orderId, lines }
+    M-->>U: "Thanks for your order"
+    MQ--)I: order.created (queue inventory.order-created)
+    I->>IDB: Already handled this OrderId?
+    alt New order and enough stock for every line
+        I->>IDB: Reserve all lines (one SaveChanges)
+        I--)MQ: stock.reserved (CorrelationId = OrderId)
+        MQ--)M: stock.reserved (queue monolith.stock-results)
+        M->>M: Status = Confirmed
+    else Not enough stock for a line
+        I->>IDB: Save the rejection, reserve nothing
+        I--)MQ: stock.rejected (CorrelationId = OrderId)
+        MQ--)M: stock.rejected
+        M->>M: Status = Cancelled
+    end
+    I->>MQ: ack order.created (after the answer is safe)
+    U->>G: My Orders
+    G->>M: GET /order/my-orders
+    M-->>U: Confirmed / Cancelled
