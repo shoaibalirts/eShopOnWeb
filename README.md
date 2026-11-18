@@ -1,217 +1,231 @@
-# Microsoft eShopOnWeb ASP.NET Core Reference Application
+# eShopOnWeb → microservices with the Strangler Pattern
 
-This Microsoft reference application is now being maintained by [NimblePros](https://nimblepros.com/).
+[![CI/CD](https://github.com/shoaibalirts/eShopOnWeb/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/shoaibalirts/eShopOnWeb/actions/workflows/ci-cd.yml)
 
-If you're looking for the .NET Aspire eShop sample it's [here](https://github.com/dotnet/eShop). Microsoft also recommends the [Reliable Web App](https://learn.microsoft.com/azure/architecture/web-apps/guides/reliable-web-app/overview) patterns guidance for building web apps with enterprise app patterns.
+This is my semester project. I take the monolithic [eShopOnWeb](https://github.com/NimblePros/eShopOnWeb) shop and start to move it to microservices with the **Strangler Pattern**. The shop keeps running the whole time, and one piece moves out at a time.
 
-Sample ASP.NET Core reference application, powered by Microsoft, demonstrating a single-process (monolithic) application architecture and deployment model. If you're new to .NET development, read the [Getting Started for Beginners](https://nimblepros.github.io/eShopOnWeb/getting-started-for-beginners.html) guide.
+I work alone, so my instructor confirmed on 6/11-2026 that I build **one** microservice: **Inventory**. It owns the stock levels and checks every order. Catalog, basket, ordering, sign-in and all pages stay in the monolith for now.
 
-A list of Frequently Asked Questions about this repository can be found [here](https://github.com/nimblepros/eShopOnWeb/wiki/Frequently-Asked-Questions).
+**Green CI/CD run on `main`:** [CHECK: link to the run after the first push]
 
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-## Table of Contents
+## Contents
 
-- [Overview Video](#overview-video)
-- [eBook](#ebook)
-- [Topics (eBook TOC)](#topics-ebook-toc)
-- [Running the sample using Azd template](#running-the-sample-using-azd-template)
-  - [Windows](#windows)
-  - [Linux/MacOS](#linuxmacos)
-- [Running the sample locally](#running-the-sample-locally)
-  - [Configuring the sample to use SQL Server](#configuring-the-sample-to-use-sql-server)
-- [Dev Containers for the eShopOnWeb repo](#dev-containers-for-the-eshoponweb-repo)
-  - [eShopOnWeb App Dev Container](#eshoponweb-app-dev-container)
-  - [eShopOnWeb Docs Dev Container](#eshoponweb-docs-dev-container)
-  - [Learn More about Dev Containers](#learn-more-about-dev-containers)
-- [Running the sample using Docker](#running-the-sample-using-docker)
-- [Getting the GitHub Single Sign-On Working](#getting-the-github-single-sign-on-working)
-- [Community Extensions](#community-extensions)
+- [Run it](#run-it)
+- [Reset before a demo](#reset-before-a-demo)
+- [What you can try](#what-you-can-try)
+- [Architecture](#architecture)
+- [The order saga](#the-order-saga)
+- [APIs](#apis)
+- [Architecture decisions](#architecture-decisions)
+- [CI/CD](#cicd)
+- [Tests](#tests)
+- [Repository map](#repository-map)
 
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+## Run it
 
-## Overview Video
+You need Docker Desktop (with Docker Compose v2) and nothing else.
 
-[Steve "ardalis" Smith](https://twitter.com/ardalis) recorded [a live stream providing an overview of the eShopOnWeb reference app](https://www.youtube.com/watch?v=vRZ8ucGac8M&ab_channel=Ardalis) in October 2020.
-
-## eBook
-
-This reference application is meant to support the free .PDF download ebook: [Architecting Modern Web Applications with ASP.NET Core and Azure](https://aka.ms/webappebook), updated to **ASP.NET Core 8.0**. [Also available in ePub/mobi formats](https://dotnet.microsoft.com/learn/web/aspnet-architecture).
-
-You can also read the book in online pages at the .NET docs here:
-https://docs.microsoft.com/dotnet/architecture/modern-web-apps-azure/
-
-[<img src="https://dotnet.microsoft.com/blob-assets/images/e-books/aspnet.png" height="300" />](https://dotnet.microsoft.com/learn/web/aspnet-architecture)
-
-The **eShopOnWeb** sample is related to the [eShopOnContainers](https://github.com/dotnet/eShopOnContainers) sample application which, in that case, focuses on a microservices/containers-based application architecture. However, **eShopOnWeb** is much simpler in regards to its current functionality and focuses on traditional Web Application Development with a single deployment.
-
-The goal for this sample is to demonstrate some of the principles and patterns described in the [eBook](https://aka.ms/webappebook). It is not meant to be an eCommerce reference application, and as such it does not implement many features that would be obvious and/or essential to a real eCommerce application.
-
-> ### VERSIONS
-> #### The `main` branch is currently running ASP.NET Core 10.0.
-> #### Older versions are tagged.
-
-## Topics (eBook TOC)
-
-- Introduction
-- Characteristics of Modern Web Applications
-- Choosing Between Traditional Web Apps and SPAs
-- Architectural Principles
-- Common Web Application Architectures
-- Common Client Side Technologies
-- Developing ASP.NET Core MVC Apps
-- Working with Data in ASP.NET Core Apps
-- Testing ASP.NET Core MVC Apps
-- Development Process for Azure-Hosted ASP.NET Core Apps
-- Azure Hosting Recommendations for ASP.NET Core Web Apps
-
-## Running the sample using Azd template
-
-The store's home page should look like this:
-
-![eShopOnWeb home page screenshot](https://user-images.githubusercontent.com/782127/88414268-92d83a00-cdaa-11ea-9b4c-db67d95be039.png)
-
-The Azure Developer CLI (`azd`) is a developer-centric command-line interface (CLI) tool for creating Azure applications.
-
-You need to install it before running and deploying with Azure Developer CLI.
-
-### Windows
-
-```powershell
-powershell -ex AllSigned -c "Invoke-RestMethod 'https://aka.ms/install-azd.ps1' | Invoke-Expression"
+```bash
+docker compose up -d --build
 ```
 
-### Linux/MacOS
+The first build takes a few minutes. When it is done:
 
-```
-curl -fsSL https://aka.ms/install-azd.sh | bash
-```
+| What | URL | Login |
+|---|---|---|
+| **The shop** (through the gateway) | http://localhost:5000 | `demouser@microsoft.com` / `Pass@word1` |
+| Admin pages | http://localhost:5000/admin | `admin@microsoft.com` / `Pass@word1` |
+| **Inventory API (Swagger)** | http://localhost:5000/api/inventory/swagger | – |
+| PublicApi (Swagger, from eShopOnWeb) | http://localhost:5200/swagger | – |
+| Seq (central logs) | http://localhost:5341 | – |
+| RabbitMQ management | http://localhost:15672 | `eshop` / `eshop` |
 
-And you can also install with package managers, like winget, choco, and brew. For more details, you can follow the documentation: https://aka.ms/azure-dev/install.
+The gateway (port 5000) is the only way into the shop and Inventory. The monolith and Inventory have no host ports.
 
-After logging in with the following command, you will be able to use the azd cli to quickly provision and deploy the application.
+To check that everything works, run the smoke test (Git Bash on Windows):
 
-```
-azd auth login
-```
-
-Then, execute the `azd init` command to initialize the environment.
-```
-azd init -t NimblePros/eShopOnWeb
-```
-
-Run `azd up` to provision all the resources to Azure and deploy the code to those resources.
-```
-azd up
+```bash
+bash scripts/smoke-test.sh
 ```
 
-According to the prompt, enter an `env name`, and select `subscription` and `location`, these are the necessary parameters when you create resources. Wait a moment for the resource deployment to complete, click the web endpoint and you will see the home page.
+It checks `/health` of all three services and places two orders. One must become `Confirmed` and one `Cancelled`. The CI deploy job runs the same script.
 
-**Notes:**
-1. Considering security, we store its related data (id, password) in the **Azure Key Vault** when we create the database, and obtain it from the Key Vault when we use it. This is different from directly deploying applications locally.
-2. The resource group name created in azure portal will be **rg-{env name}**.
+## Reset before a demo
 
-You can also run the sample directly locally (See below).
-
-## Running the sample locally
-Most of the site's functionality works with just the web application running. However, the site's Admin page relies on Blazor WebAssembly running in the browser, and it must communicate with the server using the site's PublicApi web application. You'll need to also run this project. You can configure Visual Studio to start multiple projects, or just go to the PublicApi folder in a terminal window and run `dotnet run` from there. After that from the Web folder you should run `dotnet run --launch-profile https`. Now you should be able to browse to `https://localhost:5001/`. The admin part in Blazor is accessible to `https://localhost:5001/admin`
-
-Note that if you use this approach, you'll need to stop the application manually in order to build the solution (otherwise you'll get file locking errors).
-
-After cloning or downloading the sample you must setup your database.
-To use the sample with a persistent database, you will need to run its Entity Framework Core migrations before you will be able to run the app.
-
-You can also run the samples in Docker (see below).
-
-### Configuring the sample to use SQL Server
-
-1. By default, the project uses a real database. If you want an in memory database, you can add in the `appsettings.json` file in the Web folder
-
-    ```json
-   {
-       "UseOnlyInMemoryDatabase": true
-   }
-    ```
-
-1. Ensure your connection strings in `appsettings.json` point to a local SQL Server instance.
-1. Ensure the tool EF was already installed. You can find some help [here](https://docs.microsoft.com/ef/core/miscellaneous/cli/dotnet)
-
-    ```
-    dotnet tool update --global dotnet-ef
-    ```
-
-1. Open a command prompt in the Web folder and execute the following commands:
-
-    ```
-    dotnet restore
-    dotnet tool restore
-    dotnet ef database update -c catalogcontext -p ../Infrastructure/Infrastructure.csproj -s Web.csproj
-    dotnet ef database update -c appidentitydbcontext -p ../Infrastructure/Infrastructure.csproj -s Web.csproj
-    ```
-
-    These commands will create two separate databases, one for the store's catalog data and shopping cart information, and one for the app's user credentials and identity data.
-
-1. Run the application.
-
-    The first time you run the application, it will seed both databases with data such that you should see products in the store, and you should be able to log in using the demouser@microsoft.com account.
-
-    Note: If you need to create migrations, you can use these commands:
-
-    ```
-    -- create migration (from Web folder CLI)
-    dotnet ef migrations add InitialModel --context catalogcontext -p ../Infrastructure/Infrastructure.csproj -s Web.csproj -o Data/Migrations
-
-    dotnet ef migrations add InitialIdentityModel --context appidentitydbcontext -p ../Infrastructure/Infrastructure.csproj -s Web.csproj -o Identity/Migrations
-    ```
-
-## Dev Containers for the eShopOnWeb repo
-
-We use dev containers to make it easier for you to run the eShopOnWeb application locally as well as our documentation.
-
-### eShopOnWeb App Dev Container
-
-This project includes a `.devcontainer` folder with a [dev container configuration](https://containers.dev/), which lets you use a container as a full-featured dev environment.
-
-You can use the dev container to build and run the app without needing to install any of its tools locally! You can work in GitHub Codespaces or the VS Code Dev Containers extension.
-
-Learn more about using the dev container in [eShopOnWeb's dev container readme](/.devcontainer/devcontainerreadme.md).
-
-### eShopOnWeb Docs Dev Container
-
-If you want to help maintain [the documentation](https://nimblepros.github.io/eShopOnWeb/), we have a [.devcontainer folder within the docs folder](/docs/.devcontainer). This allows us to see our documentation changes in a container running Ruby and the GitHub Pages environment.
-
-### Learn More about Dev Containers
-
-- [NimblePros YouTube: Run GitHub Pages Locally in a Dev Container](https://www.youtube.com/watch?v=JpLJi5JBmYM&t=5s)
-- [NimblePros Blog: Run GitHub Pages Locally in a Dev Container](https://blog.nimblepros.com/blogs/github-pages-with-dev-containers/)
-- [NimblePros Blog: Introduction to Dev Containers](https://blog.nimblepros.com/blogs/introduction-to-dev-containers/)
-- [NimblePros Webinar: Dev Containers Unwrapped!](https://www.youtube.com/watch?v=Wvetp2YkwPY)
-
-## Running the sample using Docker
-
-You can run the Web sample by running these commands from the root folder (where the .sln file is located):
-
-```
-docker-compose build
-docker-compose up
+```bash
+docker compose down -v
+docker compose up -d
 ```
 
-You should be able to make requests to localhost:5106 for the Web project, and localhost:5200 for the Public API project once these commands complete. If you have any problems, especially with login, try from a new guest or incognito browser instance.
+`down` removes the containers. SQL Server has no volume, so all databases (catalog, users, orders, `InventoryDb`) are gone. `-v` also removes the anonymous volumes of RabbitMQ and Seq, so queues and logs start empty too. On startup everything is seeded again: the catalog, the two demo users, and the stock (25 of each product, but only 3 of item 2, the mug). Order numbers start at 1 again.
 
-You can also run the applications by using the instructions located in their `Dockerfile` file in the root of each project. Again, run these commands from the root of the solution (where the .sln file is located).
+## What you can try
 
-## Getting the GitHub Single Sign-On Working
+| Try | What you should see |
+|---|---|
+| Buy 1 of anything, then open **My Orders** | The order is `Pending` for a moment, then `Confirmed` |
+| Buy 4 mugs (".NET Black & White Mug", item 2) | The order becomes `Cancelled`, because there are only 3 |
+| Look at the home page | "In stock: 25" under each product |
+| `docker compose stop inventory-api inventory-api-2`, then reload the home page 3 times | "Availability unknown". From the 3rd load the page is fast again (circuit breaker open) |
+| Search Seq for `CorrelationId = '1'` | Log lines from the monolith and Inventory for order 1, with the same `TraceId` as the gateway's request |
+| The rollback switch: `STOCK_CHECK_ENABLED=false docker compose up -d eshopwebmvc` | New orders stay `Pending`, and Inventory is not used at all, like before the migration |
 
-We include GitHub as our external provider for single sign-on.
+## Architecture
 
-To get it running locally, you'll want to register an application in GitHub and store values in user secrets for the client ID and client secret.
+![Target architecture](architecture/diagrams/02-target-architecture.png)
 
-We explain the code in detail in our course on [ASP.NET Identity in Action: Implementing Individual Accounts](https://academy.nimblepros.com/p/applying-identity-to-asp-net).
+| Part | What it does |
+|---|---|
+| **Gateway** (`src/Gateway`, YARP) | The single entry point. `/api/inventory/*` goes to Inventory, everything else goes to the monolith (catch-all). It validates the JWT on restock, rate-limits the inventory routes, and does round-robin over 2 Inventory replicas. |
+| **Monolith** (`src/Web` + `src/PublicApi`) | All pages, the catalog, the basket, orders and sign-in. It publishes `order.created`, consumes `stock.*`, and asks Inventory for availability on the home page. |
+| **Inventory** (`src/Inventory.Api`) | Owns stock and reservations in its own database `InventoryDb`. 2 replicas. |
+| **RabbitMQ** | Topic exchange `eshop.events` with the routing keys `order.created`, `stock.reserved` and `stock.rejected`, and the dead-letter exchange `eshop.dlx`. |
+| **Seq** | Logs from all three applications, searchable by `CorrelationId` and `TraceId`. |
+| **SQL Server** | One container with a separate database per service: `CatalogDb` and `Identity` for the monolith, `InventoryDb` for Inventory. |
 
-## Community Extensions
+More detail is in [architecture/02-target-architecture.md](architecture/02-target-architecture.md). The business contexts are in [architecture/00-business-story.md](architecture/00-business-story.md).
 
-We have some great contributions from the community, and while these aren't maintained by Microsoft we still want to highlight them.
+## The order saga
 
-[eShopOnWeb VB.NET](https://github.com/VBAndCs/eShopOnWeb_VB.NET) by Mohammad Hamdy Ghanem
+An order now involves two services with two databases, so one transaction can't cover it. Instead the services work as a choreographed saga, and the order's status shows how far it has come.
 
-[FShopOnWeb](https://github.com/NitroDevs/FShopOnWeb) An F# take on eShopOnWeb by Sean G. Wright and Kyle McMaster
+![Order saga](architecture/diagrams/02-order-saga-sequence.png)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Shopper
+    participant G as Gateway
+    participant M as Monolith (Web)
+    participant MQ as RabbitMQ<br/>eshop.events
+    participant I as Inventory
+    participant IDB as InventoryDb
+
+    U->>G: Pay Now
+    G->>M: POST /Basket/Checkout
+    M->>M: Save order, Status = Pending
+    M--)MQ: order.created { orderId, lines }
+    M-->>U: "Thanks for your order"
+    MQ--)I: order.created (queue inventory.order-created)
+    I->>IDB: Already handled this OrderId?
+    alt New order and enough stock for every line
+        I->>IDB: Reserve all lines (one SaveChanges)
+        I--)MQ: stock.reserved (CorrelationId = OrderId)
+        MQ--)M: stock.reserved (queue monolith.stock-results)
+        M->>M: Status = Confirmed
+    else Not enough stock for a line
+        I->>IDB: Save the rejection, reserve nothing
+        I--)MQ: stock.rejected (CorrelationId = OrderId)
+        MQ--)M: stock.rejected
+        M->>M: Status = Cancelled
+    end
+    I->>MQ: ack order.created (after the answer is safe)
+    U->>G: My Orders
+    G->>M: GET /order/my-orders
+    M-->>U: Confirmed / Cancelled
+```
+
+How it stays correct:
+
+- **At-least-once delivery.** Inventory acks only after its answer is published with publisher confirms. A crash means the message is delivered again, not lost.
+- **Idempotent receiver.** A reservation's key is the `OrderId`, so a duplicate message gets the first answer again and reserves nothing.
+- **All or none.** All lines of an order are reserved in one `SaveChanges`, and stock never goes below zero. `rowversion` on each stock row is meant to stop two replicas from selling the last unit twice (a test for this is future work).
+- **Retry limit and dead letters.** A message that fails 3 retries, or can't be read, goes to the queue `inventory.order-created.dead`.
+- **The monolith's side.** `Confirm()` and `Cancel()` only change a `Pending` order, so a duplicate answer does nothing.
+
+## APIs
+
+### Inventory (`src/Inventory.Api`), through the gateway
+
+| Method and path | What | Protection |
+|---|---|---|
+| `GET /api/inventory/{itemId}` | Stock level: `{ "catalogItemId": 1, "quantity": 25 }`, or 404 | Rate limit (100 per 10 s per IP) |
+| `PUT /api/inventory/{itemId}/stock` | Set the stock level. Body `{ "quantity": 30 }`. 400 if negative, 409 if the stock changed meanwhile | JWT from the monolith with the role `Administrators`, plus the rate limit |
+| `GET /api/inventory/swagger` | Swagger UI | – |
+| `GET /health/inventory` | Inventory's health (`InventoryDb`) | – |
+
+Get a token from the monolith's PublicApi, then call the restock endpoint:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:5200/api/authenticate -H "Content-Type: application/json" \
+  -d '{"username":"admin@microsoft.com","password":"Pass@word1"}' | grep -oE '"token":"[^"]*"' | cut -d'"' -f4)
+curl -i -X PUT localhost:5000/api/inventory/1/stock -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"quantity":30}'
+```
+
+No token gives 401, a token without the role `Administrators` (for example `demouser`) gives 403, and more than 100 calls in 10 seconds give 429 with `Retry-After`.
+
+### Messages (RabbitMQ, exchange `eshop.events`)
+
+| Routing key | From → to | Body |
+|---|---|---|
+| `order.created` | Monolith → Inventory (queue `inventory.order-created`) | `{ "orderId": 1, "lines": [ { "catalogItemId": 1, "quantity": 2 } ] }` |
+| `stock.reserved` | Inventory → monolith (queue `monolith.stock-results`) | `{ "orderId": 1 }` |
+| `stock.rejected` | Inventory → monolith (queue `monolith.stock-results`) | `{ "orderId": 1, "reason": "..." }` |
+
+Every message has `correlation_id` = the OrderId and a `traceparent` header for the logs.
+
+### Health
+
+| URL | Answers |
+|---|---|
+| http://localhost:5000/health | The gateway itself |
+| http://localhost:5000/health/monolith | The monolith (`CatalogDb` and `Identity`) |
+| http://localhost:5000/health/inventory | Inventory (`InventoryDb`) |
+
+## Architecture decisions
+
+| Decision | Why | Trade-off |
+|---|---|---|
+| **Inventory** is the first service | Clear ownership of one piece of data (stock), and a real business rule to protect. See [docs/report/01-why-inventory.md](docs/report/01-why-inventory.md). | Catalog and ordering stay coupled inside the monolith. |
+| **YARP gateway** as the Strangler facade | One entry point. Moving the next piece means adding one route in `appsettings.json`. | One more process, and a single point of failure. |
+| **Database per service** | Inventory can change its tables freely. The monolith only sees stock through the API and messages. | No joins and no shared transactions across services. |
+| **Messages for checkout, HTTP for reading** | Checkout must not fail when Inventory is down. The order waits as `Pending`. Reading stock for a page needs an answer now. | Eventual consistency: an order is `Pending` for a moment. |
+| **Choreographed saga** with order status | No coordinator to build or run. | The flow is spread over two services, and there is no timeout or compensation yet. |
+| **RabbitMQ.Client directly**, not MassTransit | I wanted to understand and show acks, confirms, routing and dead letters myself. | More code than a framework would need. |
+| **JWT checked at the gateway** with the monolith's key | No new identity service. Inventory never handles tokens. | Shared symmetric key, and no check inside Inventory. |
+| **Feature flag `StockCheck:Enabled`** | The Strangler Pattern's way back: off means the shop works exactly as before. | Two code paths to keep working. |
+| **Polly circuit breaker** on the stock call | A slow or dead Inventory must not make the home page slow. | The page shows "Availability unknown" instead of a stock number. |
+
+The full reasoning is in the report drafts in [docs/report](docs/report).
+
+## CI/CD
+
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) runs on every push:
+
+1. **build-and-test:** restore, build in Release, and run 5 test projects. A failing test stops the pipeline here.
+2. **images:** build the Docker images `eshopwebmvc`, `gateway` and `inventory-api`. From `main` they are pushed to GHCR as `ghcr.io/shoaibalirts/<image>:sha-<commit>` and `:latest`.
+3. **deploy** (only `main`): pull exactly those images, run `docker compose up` on the runner, then run `scripts/smoke-test.sh`.
+
+## Tests
+
+```bash
+dotnet test tests/UnitTests/UnitTests.csproj
+dotnet test tests/Inventory.Tests/Inventory.Tests.csproj
+dotnet test tests/Gateway.Tests/Gateway.Tests.csproj
+dotnet test tests/FunctionalTests/FunctionalTests.csproj
+dotnet test tests/IntegrationTests/IntegrationTests.csproj
+```
+
+| Project | What my tests cover |
+|---|---|
+| `Inventory.Tests` | Reservation rules (all or none, never below zero, one per `OrderId`), retry count and the queue contract |
+| `Gateway.Tests` | The real gateway with `WebApplicationFactory`: 401 / 403 / pass-through for restock, 429 with `Retry-After` |
+| `UnitTests` | Order status changes, the `order.created` contract, the circuit breaker opening and its fallback, the queue contract |
+
+`EndToEndTests` (Playwright, from eShopOnWeb) need a browser and an HTTPS developer certificate, so CI doesn't run them.
+
+## Repository map
+
+| Path | What |
+|---|---|
+| `src/Inventory.Api` | The Inventory microservice |
+| `src/Gateway` | The YARP gateway |
+| `src/Web/Messaging` | The monolith's side of the messaging: publisher, consumer, topology |
+| `src/Web/Services/InventoryAvailabilityService.cs` | The stock call with Polly |
+| `tests/Inventory.Tests`, `tests/Gateway.Tests` | My new test projects |
+| `scripts/smoke-test.sh` | The end-to-end check used by CI |
+| `architecture/` | Business story, monolith flows, target architecture, plan, diagrams |
+| `docs/report/` | Report drafts |
+
+Based on [NimblePros/eShopOnWeb](https://github.com/NimblePros/eShopOnWeb) (MIT license).
