@@ -29,6 +29,8 @@ I use a hybrid split with Claude Code, recorded in `CLAUDE.md`. Claude writes th
 | Sat 21 | CI → GHCR + deploy job; README + saga diagram; every check in `faerdigt-produkt.md` → **Checkpoint 2**. Afternoon: assemble and finish the report | – |
 | Sun 22 | Proofread the report, then clean clone → `docker compose up` → order → `Confirmed`. **Submit** | – |
 
+**Progress:** Wednesday's and Thursday's work were both done on Wed 18/11. **Checkpoint 1 passed on 18/11:** in Docker, an order for item 1 became `Confirmed`, an order for 4 of item 2 became `Cancelled`, and with `StockCheck:Enabled=false` a new order stayed `Pending` and Inventory's stock didn't change. Thursday 19/11 is now free for Friday's gateway work.
+
 **Friday fallback**, if it runs over: I first make an item smaller (for example a fixed fallback text for Polly). If I still have to cut, I cut in this order: 2 replicas, then the Polly product-page call, then the `429` test. I never cut the gateway routes, JWT or Seq. Any cut item is a Must check, so I update `faerdigt-produkt.md` and describe it in the report.
 
 ## Scope (Must / Should / Could)
