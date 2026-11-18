@@ -38,6 +38,10 @@ public static class WebApplicationExtensions
         app.UseHealthChecks("/health",
             new HealthCheckOptions
             {
+                // The two old checks call the shop's own public URL and the PublicApi by their outside
+                // addresses, which don't exist inside a container. They keep their own endpoints;
+                // /health checks the app itself and its databases.
+                Predicate = check => !check.Tags.Contains("homePageHealthCheck") && !check.Tags.Contains("apiHealthCheck"),
                 ResponseWriter = async (context, report) =>
                 {
                     var result = new

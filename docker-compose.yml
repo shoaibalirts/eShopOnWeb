@@ -2,7 +2,7 @@ version: '3.4'
 
 services:
   eshopwebmvc:
-    image: ${DOCKER_REGISTRY-}eshopwebmvc
+    image: ${DOCKER_REGISTRY-}eshopwebmvc:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: src/Web/Dockerfile
@@ -21,7 +21,7 @@ services:
     depends_on:
       - "sqlserver"
   gateway:
-    image: ${DOCKER_REGISTRY-}gateway
+    image: ${DOCKER_REGISTRY-}gateway:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: src/Gateway/Dockerfile
@@ -33,7 +33,7 @@ services:
   # Two replicas of Inventory. The gateway sends HTTP calls round-robin to both, and both consume
   # the same RabbitMQ queue (Competing Consumers).
   inventory-api:
-    image: ${DOCKER_REGISTRY-}inventory-api
+    image: ${DOCKER_REGISTRY-}inventory-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: src/Inventory.Api/Dockerfile
@@ -52,7 +52,7 @@ services:
       timeout: 3s
       retries: 20
   inventory-api-2:
-    image: ${DOCKER_REGISTRY-}inventory-api
+    image: ${DOCKER_REGISTRY-}inventory-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: src/Inventory.Api/Dockerfile

@@ -25,7 +25,13 @@ builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(Rab
 builder.Services.AddHostedService<OrderCreatedConsumer>();
 
 builder.Services.AddHealthChecks().AddDbContextCheck<InventoryDbContext>();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
+{
+    // Without this, the document says "http://inventory-api:8080" (the address inside Docker), and
+    // Swagger's "Try it out" fails in the browser. "/" means: the host that served the page (the gateway).
+    document.Servers = [new Microsoft.OpenApi.OpenApiServer { Url = "/" }];
+    return Task.CompletedTask;
+}));
 
 var app = builder.Build();
 
@@ -45,8 +51,14 @@ app.Use((context, next) =>
     return next();
 });
 
-app.MapOpenApi();
-app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Inventory API"));
+// The API description and Swagger UI live under /api/inventory/, so the gateway's existing
+// GET /api/inventory/** route reaches them: http://localhost:5000/api/inventory/swagger
+app.MapOpenApi("/api/inventory/openapi/{documentName}.json");
+app.UseSwaggerUI(options =>
+{
+    options.RoutePrefix = "api/inventory/swagger";
+    options.SwaggerEndpoint("/api/inventory/openapi/v1.json", "Inventory API");
+});
 
 app.MapHealthChecks("/health");
 

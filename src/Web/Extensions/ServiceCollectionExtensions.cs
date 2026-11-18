@@ -59,7 +59,10 @@ public static class ServiceCollectionExtensions
         services
             .AddHealthChecks()
             .AddCheck<ApiHealthCheck>("api_health_check", tags: new[] { "apiHealthCheck" })
-            .AddCheck<HomePageHealthCheck>("home_page_health_check", tags: new[] { "homePageHealthCheck" });
+            .AddCheck<HomePageHealthCheck>("home_page_health_check", tags: new[] { "homePageHealthCheck" })
+            // The monolith's own databases, for /health (used by the CI deploy check).
+            .AddDbContextCheck<CatalogContext>("catalog_db")
+            .AddDbContextCheck<AppIdentityDbContext>("identity_db");
     }
 
     public static void AddBlazor(this IServiceCollection services, ConfigurationManager configuration)

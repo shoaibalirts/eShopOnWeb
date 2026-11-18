@@ -1,0 +1,142 @@
+# CI/CD for my Strangler migration: build and test → Docker images to GHCR → deploy and smoke test.
+# Every job needs the one before it, so a failing test stops the pipeline before any image is pushed.
+name: CI/CD
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore eShopOnWeb.slnx
+
+      - name: Build
+        run: dotnet build eShopOnWeb.slnx --configuration Release --no-restore
+
+      # EndToEndTests (Playwright) are left out: they need a browser and an HTTPS developer certificate.
+      # PublicApiIntegrationTests has no runnable tests (it was like that before my changes).
+      - name: Test
+        run: |
+          for project in UnitTests IntegrationTests FunctionalTests Inventory.Tests Gateway.Tests; do
+            dotnet test "tests/$project/$project.csproj" --configuration Release --no-build \
+              --logger "trx;LogFileName=$project.trx" --results-directory test-results
+          done
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/*.trx
+          retention-days: 7
+
+  images:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # push to ghcr.io with the built-in GITHUB_TOKEN
+    strategy:
+      matrix:
+        include:
+          - image: eshopwebmvc
+            dockerfile: src/Web/Dockerfile
+          - image: gateway
+            dockerfile: src/Gateway/Dockerfile
+          - image: inventory-api
+            dockerfile: src/Inventory.Api/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tags: sha-<7 chars> for every build, plus latest on main. The image name is lowercased for me.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Images are built on every branch (so a broken Dockerfile is found early), but pushed only from main.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    # Deploys to the runner itself: a throw-away test environment that proves the pushed images
+    # work together. A real server would run the same docker compose commands.
+    needs: images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read           # pull the images just pushed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Choose the images from this commit
+        run: |
+          echo "DOCKER_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Pull images
+        run: docker compose pull eshopwebmvc gateway inventory-api inventory-api-2 sqlserver rabbitmq seq
+
+      # Starting the gateway starts everything it depends on: monolith, both Inventory replicas,
+      # SQL Server, RabbitMQ and Seq. --no-build: use the images from GHCR, don't build new ones.
+      - name: docker compose up
+        run: docker compose up -d --no-build gateway
+
+      - name: Smoke test (/health of all three + order saga)
+        run: bash scripts/smoke-test.sh
+
+      - name: Show container status and logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail 80 gateway eshopwebmvc inventory-api inventory-api-2
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
