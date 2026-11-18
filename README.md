@@ -42,10 +42,14 @@ The first build takes a few minutes. When it is done:
 
 The gateway (port 5000) is the only way into the shop and Inventory. The monolith and Inventory have no host ports.
 
-To check that everything works, run the smoke test (Git Bash on Windows):
+To check that everything works, run the smoke test:
+
+```powershell
+.scriptssmoke-test.ps1          # Windows PowerShell
+```
 
 ```bash
-bash scripts/smoke-test.sh
+bash scripts/smoke-test.sh        # Linux, macOS, Git Bash (used by CI)
 ```
 
 It checks `/health` of all three services and places two orders. One must become `Confirmed` and one `Cancelled`. The CI deploy job runs the same script.
