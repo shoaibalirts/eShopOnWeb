@@ -26,7 +26,7 @@ services:
      - ~/.aspnet/https:/root/.aspnet/https:ro
      - ~/.microsoft/usersecrets:/root/.microsoft/usersecrets:ro
  inventory-api:
-   environment:
+   environment: &inventory-environment
      - ASPNETCORE_ENVIRONMENT=Docker
      - ConnectionStrings__InventoryDb=Server=sqlserver,1433;Initial Catalog=InventoryDb;User Id=sa;Password=@someThingComplicated1234;TrustServerCertificate=true;
      - Seq__ServerUrl=http://seq
@@ -34,6 +34,9 @@ services:
      - RabbitMq__UserName=eshop
      - RabbitMq__Password=eshop
    # No host port: Inventory is only reachable through the gateway (/api/inventory/*).
+ inventory-api-2:
+   # The same settings as replica 1 (a YAML anchor), so the replicas can't drift apart.
+   environment: *inventory-environment
  gateway:
    environment:
      - ASPNETCORE_ENVIRONMENT=Docker

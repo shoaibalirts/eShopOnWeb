@@ -38,6 +38,13 @@ using (var scope = app.Services.CreateScope())
 // One log line per HTTP request, with method, path, status code and time.
 app.UseSerilogRequestLogging();
 
+// Shows which replica answered, so round-robin in the gateway is visible.
+app.Use((context, next) =>
+{
+    context.Response.Headers["X-Served-By"] = Environment.MachineName;
+    return next();
+});
+
 app.MapOpenApi();
 app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Inventory API"));
 
