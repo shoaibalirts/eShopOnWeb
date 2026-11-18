@@ -209,7 +209,7 @@ dotnet test tests/IntegrationTests/IntegrationTests.csproj
 
 | Project | What my tests cover |
 |---|---|
-| `Inventory.Tests` | Reservation rules (all or none, never below zero, one per `OrderId`), retry count and the queue contract |
+| `Inventory.Tests` | Reservation rules (all or none, never below zero, one per `OrderId`), retry count, the queue contract, and the HTTP API with `WebApplicationFactory` (seeded stock, 404, restock 200 / 400, OpenAPI, health) |
 | `Gateway.Tests` | The real gateway with `WebApplicationFactory`: 401 / 403 / pass-through for restock, 429 with `Retry-After` |
 | `UnitTests` | Order status changes, the `order.created` contract, the circuit breaker opening and its fallback, the queue contract |
 
