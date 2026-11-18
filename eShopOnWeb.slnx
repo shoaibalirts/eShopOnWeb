@@ -13,6 +13,7 @@
     <Project Path="src/BlazorAdmin/BlazorAdmin.csproj" />
     <Project Path="src/BlazorShared/BlazorShared.csproj" />
     <Project Path="src/eShopWeb.AppHost/eShopWeb.AppHost.csproj" />
+    <Project Path="src/Gateway/Gateway.csproj" />
     <Project Path="src/Infrastructure/Infrastructure.csproj" />
     <Project Path="src/Inventory.Api/Inventory.Api.csproj" />
     <Project Path="src/PublicApi/PublicApi.csproj" />

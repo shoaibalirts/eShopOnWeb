@@ -10,8 +10,7 @@ services:
      - RabbitMq__HostName=rabbitmq
      - RabbitMq__UserName=eshop
      - RabbitMq__Password=eshop
-   ports:
-     - "5106:8080"
+   # No host port: the shop is only reachable through the gateway on http://localhost:5000.
    volumes:
      - ~/.aspnet/https:/root/.aspnet/https:ro
      - ~/.microsoft/usersecrets:/root/.microsoft/usersecrets:ro
@@ -31,5 +30,9 @@ services:
      - RabbitMq__HostName=rabbitmq
      - RabbitMq__UserName=eshop
      - RabbitMq__Password=eshop
+   # No host port: Inventory is only reachable through the gateway (/api/inventory/*).
+ gateway:
+   environment:
+     - ASPNETCORE_ENVIRONMENT=Docker
    ports:
-     - "5300:8080"
+     - "5000:8080"

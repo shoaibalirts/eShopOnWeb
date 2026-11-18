@@ -18,6 +18,14 @@ services:
       dockerfile: src/PublicApi/Dockerfile
     depends_on:
       - "sqlserver"
+  gateway:
+    image: ${DOCKER_REGISTRY-}gateway
+    build:
+      context: .
+      dockerfile: src/Gateway/Dockerfile
+    depends_on:
+      - eshopwebmvc
+      - inventory-api
   inventory-api:
     image: ${DOCKER_REGISTRY-}inventory-api
     build:
