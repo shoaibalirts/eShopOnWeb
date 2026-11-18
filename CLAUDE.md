@@ -11,7 +11,6 @@ Changed on 18/11-2026: Claude builds the rest and drafts the report under my dir
 - **Report:** Claude drafts each section in `docs/report/` as the related code is finished: first person, simple student English, specific to my files and classes, marked **DRAFT**. I review and edit.
 - **Study notes:** each day Claude writes `docs/study/day-N.md`: what was built, the patterns, the key code lines with plain explanations, and 5 exam questions with ideal answers, grouped by the 6 exam topics.
 - **Each evening:** Claude quizzes me with that day's 5 questions and grades my answers.
-- **AI statement:** `docs/report/00-ai-statement.md` says honestly that Claude Code wrote the code and drafted the report under my direction, and that I tested it, reviewed and edited the report, and can explain all of it.
 - **Never cut a requirement** without asking me first.
 
 ## Scope
