@@ -2,8 +2,18 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured logs to the console and to Seq, like the monolith and Inventory.
+builder.Services.AddSerilog(logger => logger
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "gateway")
+    .Enrich.WithProperty("Instance", Environment.MachineName)
+    .WriteTo.Console()
+    .WriteTo.Seq(builder.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341"));
 
 // The monolith signs its tokens with HMAC-SHA256 (IdentityTokenClaimService). The gateway checks the
 // signature and expiry with the same key, so Inventory never has to deal with tokens itself.
@@ -61,6 +71,9 @@ builder.Services.AddReverseProxy()
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+// One log line per request through the gateway, with the status code and the time it took.
+app.UseSerilogRequestLogging();
 
 // Rate limiting first, so a flood of requests is stopped before any token is checked.
 app.UseRateLimiter();

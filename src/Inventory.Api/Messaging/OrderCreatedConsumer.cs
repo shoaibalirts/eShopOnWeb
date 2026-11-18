@@ -5,6 +5,7 @@ using Inventory.Api.Services;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using Serilog.Context;
 
 namespace Inventory.Api.Messaging;
 
@@ -61,6 +62,10 @@ public class OrderCreatedConsumer(
     private async Task HandleAsync(BasicDeliverEventArgs delivery, CancellationToken stoppingToken)
     {
         var channel = _channel!;
+
+        // Every log line while handling this message gets the same TraceId and CorrelationId (= OrderId).
+        using var activity = TraceContext.StartConsumer(delivery);
+        using var correlation = LogContext.PushProperty("CorrelationId", delivery.BasicProperties.CorrelationId);
 
         OrderCreatedMessage? order;
         try
@@ -119,6 +124,7 @@ public class OrderCreatedConsumer(
             Type = routingKey,
             DeliveryMode = DeliveryModes.Persistent
         };
+        TraceContext.Inject(properties);
 
         await channel.BasicPublishAsync(Exchange, routingKey, mandatory: false, properties, body, cancellationToken);
     }

@@ -10,11 +10,21 @@ using Microsoft.eShopWeb.Web.Configuration;
 using Microsoft.eShopWeb.Web.Extensions;
 using Microsoft.eShopWeb.Web.Messaging;
 using NimblePros.Metronome;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults & Aspire components.
 builder.AddAspireServiceDefaults();
+
+// Structured logs to the console and to Seq, like the gateway and Inventory. Serilog replaces the default loggers.
+builder.Services.AddSerilog(logger => logger
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "eshop-web")
+    .Enrich.WithProperty("Instance", Environment.MachineName)
+    .WriteTo.Console()
+    .WriteTo.Seq(builder.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341"));
 
 builder.Services.AddDatabaseContexts(builder.Environment, builder.Configuration);
 
@@ -122,6 +132,8 @@ app.UseTroubleshootingMiddlewares();
 app.UseHttpsRedirection();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
+// After static files, so only page and API requests get a request log line.
+app.UseSerilogRequestLogging();
 app.UseRouting();
 
 app.UseCookiePolicy();

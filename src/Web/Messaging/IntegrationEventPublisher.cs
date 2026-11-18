@@ -2,6 +2,7 @@ using Mediator;
 using Microsoft.eShopWeb.ApplicationCore.Entities.OrderAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Entities.OrderAggregate.Events;
 using Microsoft.Extensions.Options;
+using Serilog.Context;
 
 namespace Microsoft.eShopWeb.Web.Messaging;
 
@@ -24,6 +25,9 @@ public class IntegrationEventPublisher(
         }
 
         var message = Translate(domainEvent.Order);
+
+        // CorrelationId = OrderId on every log line about this order, in all services.
+        using var correlation = LogContext.PushProperty("CorrelationId", message.OrderId.ToString());
         try
         {
             await publisher.PublishAsync(RabbitMqTopology.OrderCreatedKey, message, message.OrderId.ToString(), cancellationToken);

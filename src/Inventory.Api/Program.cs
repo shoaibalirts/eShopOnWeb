@@ -3,8 +3,18 @@ using Inventory.Api.Data;
 using Inventory.Api.Messaging;
 using Inventory.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured logs to the console and to Seq. Application and Instance tell the services and replicas apart.
+builder.Services.AddSerilog(logger => logger
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "inventory-api")
+    .Enrich.WithProperty("Instance", Environment.MachineName)
+    .WriteTo.Console()
+    .WriteTo.Seq(builder.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341"));
 
 builder.Services.AddDbContext<InventoryDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("InventoryDb")));
@@ -24,6 +34,9 @@ using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<InventoryDbContext>().Database.MigrateAsync();
 }
+
+// One log line per HTTP request, with method, path, status code and time.
+app.UseSerilogRequestLogging();
 
 app.MapOpenApi();
 app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Inventory API"));

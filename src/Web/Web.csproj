@@ -22,6 +22,8 @@
     <PackageReference Include="Azure.Identity" />
     <PackageReference Include="Mediator.Abstractions" />
     <PackageReference Include="RabbitMQ.Client" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Seq" />
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>

@@ -5,6 +5,7 @@ services:
      - ASPNETCORE_ENVIRONMENT=Docker
      - ASPNETCORE_URLS=http://+:8080
      - ConnectionStrings__seq=http://seq
+     - Seq__ServerUrl=http://seq
      # Rollback switch: STOCK_CHECK_ENABLED=false docker compose up -d eshopwebmvc
      - StockCheck__Enabled=${STOCK_CHECK_ENABLED:-true}
      - RabbitMq__HostName=rabbitmq
@@ -27,6 +28,7 @@ services:
    environment:
      - ASPNETCORE_ENVIRONMENT=Docker
      - ConnectionStrings__InventoryDb=Server=sqlserver,1433;Initial Catalog=InventoryDb;User Id=sa;Password=@someThingComplicated1234;TrustServerCertificate=true;
+     - Seq__ServerUrl=http://seq
      - RabbitMq__HostName=rabbitmq
      - RabbitMq__UserName=eshop
      - RabbitMq__Password=eshop
@@ -36,5 +38,6 @@ services:
      - ASPNETCORE_ENVIRONMENT=Docker
      # Must match AuthorizationConstants.JWT_SECRET_KEY in the monolith. Override it with JWT_SIGNING_KEY.
      - Jwt__SigningKey=${JWT_SIGNING_KEY:-SecretKeyOfDoomThatMustBeAMinimumNumberOfBytes}
+     - Seq__ServerUrl=http://seq
    ports:
      - "5000:8080"

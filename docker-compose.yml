@@ -11,6 +11,8 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+      seq:
+        condition: service_started
   eshoppublicapi:
     image: ${DOCKER_REGISTRY-}eshoppublicapi
     build:
@@ -26,6 +28,7 @@ services:
     depends_on:
       - eshopwebmvc
       - inventory-api
+      - seq
   inventory-api:
     image: ${DOCKER_REGISTRY-}inventory-api
     build:
@@ -36,6 +39,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      seq:
+        condition: service_started
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     # 1434 on the host, because 1433 is often taken by a local SQL Server.

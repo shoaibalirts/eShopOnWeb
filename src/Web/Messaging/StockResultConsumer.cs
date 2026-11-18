@@ -4,6 +4,7 @@ using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using Serilog.Context;
 
 namespace Microsoft.eShopWeb.Web.Messaging;
 
@@ -50,6 +51,10 @@ public class StockResultConsumer(
     private async Task HandleAsync(BasicDeliverEventArgs delivery, CancellationToken stoppingToken)
     {
         var channel = _channel!;
+
+        // Same TraceId as the checkout request, and CorrelationId = OrderId on every log line.
+        using var activity = TraceContext.StartConsumer(delivery);
+        using var correlation = LogContext.PushProperty("CorrelationId", delivery.BasicProperties.CorrelationId);
 
         // Correlation Identifier: the answer says which order it belongs to.
         if (!int.TryParse(delivery.BasicProperties.CorrelationId, out var orderId))

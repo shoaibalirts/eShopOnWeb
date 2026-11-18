@@ -23,6 +23,7 @@ public sealed class RabbitMqPublisher(IOptions<RabbitMqOptions> options) : IAsyn
             Type = routingKey,
             DeliveryMode = DeliveryModes.Persistent
         };
+        TraceContext.Inject(properties);
 
         await _lock.WaitAsync(cancellationToken);
         try
