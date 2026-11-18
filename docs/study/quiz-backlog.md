@@ -26,3 +26,11 @@ Questions I skipped and will answer after submission. The ideal answers are in t
 4. **(Build and deploy)** How do the two Inventory replicas work in Docker Compose, and what happens when one dies?
 5. **(Message channels)** What happens to an `order.created` message that keeps failing, and why didn't I use RabbitMQ's own delivery limit?
 6. **(Bonus: message routing)** How can I follow one order across the gateway, the monolith, RabbitMQ and Inventory in Seq?
+
+## Day 4 – Saturday's plan, done 18/11 (answers in [day-4.md](day-4.md))
+
+1. **(Microservices vs monolith)** Why does each service need its own health endpoint, and who uses them in my system?
+2. **(Security)** How does my pipeline push to GHCR without any secrets, and what is "least privilege" here?
+3. **(Testing)** What does the smoke test check, and why is it more than "the containers started"?
+4. **(Build and deploy)** Walk through the pipeline. What happens when a test fails, and how do I know the deploy runs the tested images?
+5. **(Message channels + API gateway)** In Checkpoint 2, 110 calls in a row all got 200 although the limit is 100 per 10 seconds. Why, and how did I fix it?
