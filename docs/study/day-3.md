@@ -29,7 +29,7 @@ Monolith catalog page → gateway → Inventory   (Polly: timeout 2 s, circuit b
 | Strangler Fig facade | `src/Gateway/appsettings.json` routes | A proxy in front of the monolith sends one route at a time to the new service. |
 | API Gateway | `src/Gateway` | One entry point that also handles cross-cutting concerns: tokens, rate limits, load balancing. |
 | Edge authentication | `AddJwtBearer` + policy `admin` | The token is checked once at the edge, so the service behind it stays simple. |
-| Rate limiting | `AddRateLimiter`, fixed window per IP | Stops one client from overloading the service. |
+| Rate limiting | `AddRateLimiter`, sliding window per IP (first fixed, changed in Checkpoint 2) | Stops one client from overloading the service. |
 | Circuit breaker + fallback | `AddInventoryAvailability` | Fail fast when a dependency is down, and show a safe default instead. |
 | Load balancer + health check | cluster `inventory`, `RoundRobin`, `HealthCheck.Active` | Spread calls over replicas and skip the dead ones. |
 | Competing Consumers | 2 replicas on `inventory.order-created` | Several consumers on one queue; each message goes to one of them. |

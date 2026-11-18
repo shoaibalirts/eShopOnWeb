@@ -38,11 +38,13 @@ I also tested it live in Docker. No token gave 401, `demouser` gave 403, `admin`
 
 ## Rate limiting
 
-A client that floods the inventory routes could overload Inventory and its database. `AddRateLimiter` in the gateway uses a fixed window per client IP: 100 requests per 10 seconds (`RateLimiting` in appsettings). Request 101 gets `429 Too Many Requests` with a `Retry-After: 10` header, before the request reaches Inventory. Only the inventory routes have the policy, so browsing the shop is not limited.
+A client that floods the inventory routes could overload Inventory and its database. `AddRateLimiter` in the gateway uses a sliding window per client IP: 100 requests per 10 seconds (`RateLimiting` in appsettings), counted in 5 segments of 2 seconds. Request 101 gets `429 Too Many Requests` with a `Retry-After: 10` header, before the request reaches Inventory. Only the inventory routes have the policy, so browsing the shop is not limited.
 
 `UseRateLimiter()` comes before `UseAuthentication()`, so a flood is stopped before the gateway spends time checking signatures.
 
 The tests in `InventoryRateLimit.cs` use a limit of 3 to keep them fast. The 4th call gets 429 with `Retry-After`, and the shop pages are not limited. Live in Docker, 110 calls gave 100 × 200 and 10 × 429.
+
+I first used a fixed window. During Checkpoint 2 on 18/11, 110 quick calls in a row all got 200. A fixed window resets its counter on a timer, so a burst that crosses a reset is split over two windows, and up to twice the limit gets through. A sliding window looks at the last 10 seconds at any moment, so this gap is gone. After the change, three runs of 110 calls in a row each gave 100 × 200 and 10 × 429.
 
 ## Weaknesses
 

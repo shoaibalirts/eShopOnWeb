@@ -45,7 +45,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("admin", policy => policy.RequireAuthenticatedUser().RequireRole("Administrators"));
 });
 
-// Fixed window per client IP. A client that sends too many requests gets 429 before Inventory is called.
+// Sliding window per client IP. A client that sends too many requests gets 429 before Inventory is called.
 var permitLimit = builder.Configuration.GetValue("RateLimiting:PermitLimit", 100);
 var window = TimeSpan.FromSeconds(builder.Configuration.GetValue("RateLimiting:WindowSeconds", 10));
 
@@ -58,10 +58,18 @@ builder.Services.AddRateLimiter(options =>
         return ValueTask.CompletedTask;
     };
 
-    // Used by the inventory routes in appsettings.json.
-    options.AddPolicy("inventory", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+    // Used by the inventory routes in appsettings.json. A sliding window counts the requests of the last
+    // 10 seconds in 5 segments of 2 s. I first used a fixed window, but it resets on a timer, so a burst
+    // that crossed a reset got up to twice the limit through (I saw 110 × 200 in a live test).
+    options.AddPolicy("inventory", httpContext => RateLimitPartition.GetSlidingWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = permitLimit, Window = window, QueueLimit = 0 }));
+        factory: _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = permitLimit,
+            Window = window,
+            SegmentsPerWindow = 5,
+            QueueLimit = 0
+        }));
 });
 
 // Routes and destinations come from the "ReverseProxy" section in appsettings.
