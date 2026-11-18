@@ -31,6 +31,10 @@
             {
                 <div class="esh-catalog-item col-md-4">
                     <partial name="_product" for="@catalogItem" />
+                    @if (Model.Availability.TryGetValue(catalogItem.Id, out var availability))
+                    {
+                        <div class="esh-catalog-name"><span>@availability</span></div>
+                    }
                 </div>
             }
         </div>

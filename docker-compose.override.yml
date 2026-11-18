@@ -8,6 +8,7 @@ services:
      - Seq__ServerUrl=http://seq
      # Rollback switch: STOCK_CHECK_ENABLED=false docker compose up -d eshopwebmvc
      - StockCheck__Enabled=${STOCK_CHECK_ENABLED:-true}
+     - Inventory__BaseUrl=http://gateway:8080/
      - RabbitMq__HostName=rabbitmq
      - RabbitMq__UserName=eshop
      - RabbitMq__Password=eshop

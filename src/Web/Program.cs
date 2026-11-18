@@ -9,6 +9,7 @@ using Microsoft.eShopWeb.Web.Areas.Identity.Helpers;
 using Microsoft.eShopWeb.Web.Configuration;
 using Microsoft.eShopWeb.Web.Extensions;
 using Microsoft.eShopWeb.Web.Messaging;
+using Microsoft.eShopWeb.Web.Services;
 using NimblePros.Metronome;
 using Serilog;
 
@@ -90,6 +91,7 @@ builder.Services.AddCustomHealthChecks();
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<StockCheckOptions>(builder.Configuration.GetSection(StockCheckOptions.SectionName));
 builder.Services.AddSingleton<RabbitMqPublisher>();
+builder.Services.AddInventoryAvailability(builder.Configuration);
 if (builder.Configuration.GetValue<bool>("StockCheck:Enabled"))
 {
     builder.Services.AddHostedService<StockResultConsumer>();
