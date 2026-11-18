@@ -24,6 +24,7 @@ graph LR
         EX{{"eshop.events<br/>(topic exchange)"}}
         QInv["queue inventory.order-created<br/>bound to order.created"]
         QMono["queue monolith.stock-results<br/>bound to stock.*"]
+        DLQ["dead-letter queue<br/>inventory.order-created.dead<br/>(via eshop.dlx, after 3 retries)"]
     end
 
     Seq["Seq<br/>central logs"]
@@ -42,6 +43,7 @@ graph LR
     Inv -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> EX
     EX -. "event (async)<br/>stock.reserved /<br/>stock.rejected" .-> QMono
     QMono -. "event (async)<br/>consume → order status" .-> Mono
+    QInv -. "rejected or<br/>3 retries failed" .-> DLQ
 
     Mono -- "HTTP (sync)<br/>logs" --> Seq
     GW -- "HTTP (sync)<br/>logs" --> Seq
@@ -125,8 +127,9 @@ Solid arrows with a filled head are calls that wait for an answer. Arrows with a
 | Duplicate messages | Inventory allows one reservation per `OrderId`, so a message that arrives twice reserves only once (idempotent receiver). |
 | Two buyers, last unit | `rowversion` on `StockItem`, so only one of two reservations for the last unit succeeds. |
 | Two replicas | Both read from the same queue (Competing Consumers), so each message is handled by one replica. |
+| Failing messages | A poison message, or one that still fails after 3 retries (`x-retry-count` header), is rejected and moves through the dead-letter exchange `eshop.dlx` to `inventory.order-created.dead`. |
 
-On 17/11 I cut the dead-letter exchange and the concurrency test to meet the deadline (see [PLAN.md](PLAN.md)). They are future work in my report.
+On 17/11 I cut the dead-letter exchange and the concurrency test to meet the deadline. On 18/11 I had time left after the gateway work, so I built the dead-letter exchange after all. The concurrency test is still future work (see [PLAN.md](PLAN.md)).
 
 ## Inventory API
 

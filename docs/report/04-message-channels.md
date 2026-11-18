@@ -44,24 +44,27 @@ If Inventory crashes before step 3, RabbitMQ delivers the message again. This me
 
 There are two kinds of errors:
 
-- **A poison message**, such as invalid JSON, can never succeed. The consumer logs an error and nacks with `requeue: false`, and RabbitMQ drops it.
-- **A temporary error**, such as the database being down, may succeed later. The consumer waits 2 seconds and nacks with `requeue: true`, so the message goes back into the queue.
+- **A poison message**, such as invalid JSON, can never succeed. The consumer logs an error and nacks with `requeue: false`. The queue has the argument `x-dead-letter-exchange = eshop.dlx`, so RabbitMQ moves the message to the dead-letter queue `inventory.order-created.dead` instead of deleting it. There I can inspect it in the management UI.
+- **A temporary error**, such as the database being down, may succeed later. The consumer waits 2 seconds, publishes a copy of the message to the back of the queue with the header `x-retry-count` one higher, and then acks the original. After 3 retries it nacks with `requeue: false`, so the message goes to the dead-letter queue too. Without this limit, a message that always fails would loop forever.
+
+I first tried to let RabbitMQ count the retries with a quorum queue and `x-delivery-limit`. My live test showed that RabbitMQ 4.3 did not count a `nack` with `requeue: true`, so the message looped 37 times and never reached the dead-letter queue. That is why I count the retries myself in my own header. The copy is published with publisher confirms before the ack, so a crash in between gives a duplicate, never a lost message, and `ReserveAsync` is idempotent.
 
 ## How I tested it
 
-I published four messages to `eshop.events` with the RabbitMQ management API. To see the answers, I bound a test queue to `stock.*`.
+I published test messages to `eshop.events` with the RabbitMQ management API. To see the answers, I bound a test queue to `stock.*`.
 
 | Order | Lines | Result |
 |---|---|---|
 | 1001 | item 1 × 2 | `Reserved`, item 1 went from 25 to 23 |
 | 1002 | item 1 × 1, item 2 × 5 | `Rejected`, and item 1 stayed at 23 (all or none) |
 | 1001 again | item 1 × 2 | Log: "already handled", and stock did not change |
-| `this is not json` | – | Log: "Could not read", and the message was dropped |
+| `this is not json` | – | Log: "Could not read", and the message is in `inventory.order-created.dead` with `x-first-death-reason: rejected` |
+| 9300 (SQL Server stopped) | item 5 × 1 | Log: retry 1, 2 and 3 of 3 (shared by both replicas), then "dead-lettering it" |
 
 The answers arrived as `stock.reserved` and `stock.rejected` with the right `correlation_id`.
 
 ## Trade-offs and future work
 
-- **No dead-letter exchange.** I cut it on 17/11. Poison messages are dropped, and the log is the only trace. A dead-letter exchange would keep them so I could inspect them.
-- **No retry limit.** A message that always fails with a temporary error is retried every 2 seconds forever. A retry counter and a dead-letter exchange would fix this.
+- **Dead letters need a human.** Nothing reads `inventory.order-created.dead` automatically. In production I would alert on it and add a way to send messages back to the main queue after the fault is fixed. An order whose message is dead-lettered stays `Pending` in the monolith until then.
+- **Fixed retry delay.** Every retry waits 2 seconds. Exponential backoff would be gentler on a database that is restarting. An outage longer than the four attempts (about 25 seconds in my test, because each attempt also waits for the SQL connection timeout) sends the message to the dead-letter queue.
 - **Duplicate answers.** Because of at-least-once delivery, the monolith can get the same `stock.reserved` twice. Its status update must therefore be idempotent too.

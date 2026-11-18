@@ -20,6 +20,25 @@ public class OrderCreatedConsumer(
     public const string OrderCreatedKey = "order.created";
     public const string StockReservedKey = "stock.reserved";
     public const string StockRejectedKey = "stock.rejected";
+    public const string DeadLetterExchange = "eshop.dlx";
+    public const string DeadLetterQueue = "inventory.order-created.dead";
+
+    public const string RetryHeader = "x-retry-count";
+    public const int MaxRetries = 3;
+
+    // A message I reject with requeue: false goes to the dead-letter exchange instead of being deleted.
+    // The monolith declares the same queue, so these arguments must match RabbitMqTopology exactly.
+    public static readonly Dictionary<string, object?> QueueArguments = new()
+    {
+        ["x-dead-letter-exchange"] = DeadLetterExchange
+    };
+
+    // How many times this message was retried already. My own header, because RabbitMQ 4 doesn't count
+    // a nack with requeue: true as a failed delivery (I tested x-delivery-limit and it never triggered).
+    public static int RetryCount(IReadOnlyBasicProperties properties) =>
+        properties.Headers?.TryGetValue(RetryHeader, out var value) == true && value is not null
+            ? Convert.ToInt32(value)
+            : 0;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -45,7 +64,13 @@ public class OrderCreatedConsumer(
 
         // Declaring is safe to repeat: RabbitMQ only creates what is missing.
         await _channel.ExchangeDeclareAsync(Exchange, ExchangeType.Topic, durable: true, cancellationToken: stoppingToken);
-        await _channel.QueueDeclareAsync(Queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+
+        // Dead letters: a fanout exchange and one queue where failed messages wait for a human to look at them.
+        await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Fanout, durable: true, cancellationToken: stoppingToken);
+        await _channel.QueueDeclareAsync(DeadLetterQueue, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+        await _channel.QueueBindAsync(DeadLetterQueue, DeadLetterExchange, routingKey: "", cancellationToken: stoppingToken);
+
+        await _channel.QueueDeclareAsync(Queue, durable: true, exclusive: false, autoDelete: false, QueueArguments, cancellationToken: stoppingToken);
         await _channel.QueueBindAsync(Queue, Exchange, OrderCreatedKey, cancellationToken: stoppingToken);
 
         // Take at most 10 unacked messages at a time, so two replicas share the work.
@@ -79,9 +104,9 @@ public class OrderCreatedConsumer(
 
         if (order is null || order.Lines is null)
         {
-            // Poison message: it will never parse, so retrying is pointless. Without a dead-letter
-            // exchange (cut on 17/11) RabbitMQ drops it, and the log is the only trace.
-            logger.LogError("Could not read order.created message {MessageId}, dropping it", delivery.BasicProperties.MessageId);
+            // Poison message: it will never parse, so retrying is pointless. requeue: false sends it
+            // straight to the dead-letter queue, where I can inspect it.
+            logger.LogError("Could not read order.created message {MessageId}, dead-lettering it", delivery.BasicProperties.MessageId);
             await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: false, stoppingToken);
             return;
         }
@@ -103,11 +128,37 @@ public class OrderCreatedConsumer(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // A temporary problem (database down, concurrency conflict): put the message back and try again.
-            logger.LogWarning(ex, "Order {OrderId} failed, requeueing", order.OrderId);
+            // A temporary problem (database down, concurrency conflict): try again a few times, then give up.
+            var retries = RetryCount(delivery.BasicProperties);
+            if (retries >= MaxRetries)
+            {
+                logger.LogError(ex, "Order {OrderId} failed after {Retries} retries, dead-lettering it", order.OrderId, retries);
+                await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: false, stoppingToken);
+                return;
+            }
+
+            logger.LogWarning(ex, "Order {OrderId} failed, retry {Retry} of {MaxRetries} in 2 s", order.OrderId, retries + 1, MaxRetries);
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-            await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, stoppingToken);
+            await RetryAsync(channel, delivery, retries + 1, stoppingToken);
         }
+    }
+
+    // Puts a copy with a higher retry count at the back of the queue, then acks the original.
+    // The copy is confirmed before the ack, so the message can't get lost (at worst it is duplicated,
+    // and ReserveAsync is idempotent).
+    private static async Task RetryAsync(IChannel channel, BasicDeliverEventArgs delivery, int retry, CancellationToken cancellationToken)
+    {
+        var properties = new BasicProperties(delivery.BasicProperties)
+        {
+            Headers = new Dictionary<string, object?>(delivery.BasicProperties.Headers ?? new Dictionary<string, object?>())
+            {
+                [RetryHeader] = retry
+            }
+        };
+
+        // The default exchange ("") routes straight to the queue with the same name.
+        await channel.BasicPublishAsync("", Queue, mandatory: false, properties, delivery.Body, cancellationToken);
+        await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken);
     }
 
     private static async Task PublishResultAsync(IChannel channel, Reservation reservation, CancellationToken cancellationToken)

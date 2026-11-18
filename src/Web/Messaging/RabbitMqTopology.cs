@@ -13,6 +13,15 @@ public static class RabbitMqTopology
     public const string StockRejectedKey = "stock.rejected";
     public const string InventoryQueue = "inventory.order-created";
     public const string MonolithQueue = "monolith.stock-results";
+    public const string DeadLetterExchange = "eshop.dlx";
+    public const string InventoryDeadLetterQueue = "inventory.order-created.dead";
+
+    // Must be exactly the same as OrderCreatedConsumer.QueueArguments in Inventory, or RabbitMQ
+    // refuses the declare with 406 PRECONDITION_FAILED. Rejected messages go to the dead-letter exchange.
+    public static readonly Dictionary<string, object?> InventoryQueueArguments = new()
+    {
+        ["x-dead-letter-exchange"] = DeadLetterExchange
+    };
 
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -22,7 +31,11 @@ public static class RabbitMqTopology
     {
         await channel.ExchangeDeclareAsync(Exchange, ExchangeType.Topic, durable: true, cancellationToken: cancellationToken);
 
-        await channel.QueueDeclareAsync(InventoryQueue, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
+        await channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Fanout, durable: true, cancellationToken: cancellationToken);
+        await channel.QueueDeclareAsync(InventoryDeadLetterQueue, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
+        await channel.QueueBindAsync(InventoryDeadLetterQueue, DeadLetterExchange, routingKey: "", cancellationToken: cancellationToken);
+
+        await channel.QueueDeclareAsync(InventoryQueue, durable: true, exclusive: false, autoDelete: false, InventoryQueueArguments, cancellationToken: cancellationToken);
         await channel.QueueBindAsync(InventoryQueue, Exchange, OrderCreatedKey, cancellationToken: cancellationToken);
 
         await channel.QueueDeclareAsync(MonolithQueue, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
